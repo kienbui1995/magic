@@ -3,6 +3,7 @@ package gateway
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/kienbui1995/magic/core/internal/protocol"
@@ -20,6 +21,33 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
+func getPagination(r *http.Request) (limit, offset int) {
+	limit = 100
+	offset = 0
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= 1000 {
+			limit = v
+		}
+	}
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if v, err := strconv.Atoi(o); err == nil && v >= 0 {
+			offset = v
+		}
+	}
+	return
+}
+
+func paginate[T any](items []T, limit, offset int) []T {
+	if offset >= len(items) {
+		return []T{}
+	}
+	end := offset + limit
+	if end > len(items) {
+		end = len(items)
+	}
+	return items[offset:end]
+}
+
 func (g *Gateway) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":  "ok",
@@ -35,7 +63,7 @@ func (g *Gateway) handleRegisterWorker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	worker, err := g.registry.Register(payload)
+	worker, err := g.deps.Registry.Register(payload)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to register worker")
 		return
@@ -44,8 +72,20 @@ func (g *Gateway) handleRegisterWorker(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, worker)
 }
 
+func (g *Gateway) handleGetWorker(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	worker, err := g.deps.Registry.GetWorker(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "worker not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, worker)
+}
+
 func (g *Gateway) handleListWorkers(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, g.registry.ListWorkers())
+	limit, offset := getPagination(r)
+	workers := g.deps.Registry.ListWorkers()
+	writeJSON(w, http.StatusOK, paginate(workers, limit, offset))
 }
 
 func (g *Gateway) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +94,7 @@ func (g *Gateway) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := g.registry.Heartbeat(payload); err != nil {
+	if err := g.deps.Registry.Heartbeat(payload); err != nil {
 		writeError(w, http.StatusNotFound, "worker not found")
 		return
 	}
@@ -76,24 +116,34 @@ func (g *Gateway) handleSubmitTask(w http.ResponseWriter, r *http.Request) {
 		task.Priority = protocol.PriorityNormal
 	}
 
-	worker, err := g.router.RouteTask(&task)
+	worker, err := g.deps.Router.RouteTask(&task)
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, "no worker available for task")
 		return
 	}
 
-	g.store.AddTask(&task)
+	g.deps.Store.AddTask(&task)
 
 	// Copy for async dispatch to avoid race condition (H-04)
 	taskCopy := task
 	workerCopy := *worker
-	go g.dispatcher.Dispatch(&taskCopy, &workerCopy)
+	go g.deps.Dispatcher.Dispatch(&taskCopy, &workerCopy)
 
 	writeJSON(w, http.StatusCreated, task)
 }
 
+func (g *Gateway) handleGetTask(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	task, err := g.deps.Store.GetTask(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
+}
+
 func (g *Gateway) handleGetStats(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, g.monitor.Stats())
+	writeJSON(w, http.StatusOK, g.deps.Monitor.Stats())
 }
 
 type WorkflowRequest struct {
@@ -109,7 +159,7 @@ func (g *Gateway) handleSubmitWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wf, err := g.orchestrator.Submit(req.Name, req.Steps, req.Context)
+	wf, err := g.deps.Orchestrator.Submit(req.Name, req.Steps, req.Context)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid workflow")
 		return
@@ -118,8 +168,20 @@ func (g *Gateway) handleSubmitWorkflow(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, wf)
 }
 
+func (g *Gateway) handleGetWorkflow(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	wf, err := g.deps.Orchestrator.GetWorkflow(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "workflow not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, wf)
+}
+
 func (g *Gateway) handleListWorkflows(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, g.orchestrator.ListWorkflows())
+	limit, offset := getPagination(r)
+	workflows := g.deps.Orchestrator.ListWorkflows()
+	writeJSON(w, http.StatusOK, paginate(workflows, limit, offset))
 }
 
 type CreateTeamRequest struct {
@@ -135,7 +197,7 @@ func (g *Gateway) handleCreateTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	team, err := g.orgMgr.CreateTeam(req.Name, req.OrgID, req.DailyBudget)
+	team, err := g.deps.OrgMgr.CreateTeam(req.Name, req.OrgID, req.DailyBudget)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create team")
 		return
@@ -145,11 +207,13 @@ func (g *Gateway) handleCreateTeam(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g *Gateway) handleListTeams(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, g.orgMgr.ListTeams())
+	limit, offset := getPagination(r)
+	teams := g.deps.OrgMgr.ListTeams()
+	writeJSON(w, http.StatusOK, paginate(teams, limit, offset))
 }
 
 func (g *Gateway) handleCostReport(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, g.costCtrl.OrgReport())
+	writeJSON(w, http.StatusOK, g.deps.CostCtrl.OrgReport())
 }
 
 type AddKnowledgeRequest struct {
@@ -168,7 +232,7 @@ func (g *Gateway) handleAddKnowledge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entry, err := g.knowledge.Add(req.Title, req.Content, req.Tags, req.Scope, req.ScopeID, req.CreatedBy)
+	entry, err := g.deps.Knowledge.Add(req.Title, req.Content, req.Tags, req.Scope, req.ScopeID, req.CreatedBy)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to add knowledge entry")
 		return
@@ -178,12 +242,13 @@ func (g *Gateway) handleAddKnowledge(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g *Gateway) handleSearchKnowledge(w http.ResponseWriter, r *http.Request) {
+	limit, offset := getPagination(r)
 	query := r.URL.Query().Get("q")
 	var entries []*protocol.KnowledgeEntry
 	if query != "" {
-		entries = g.knowledge.Search(query)
+		entries = g.deps.Knowledge.Search(query)
 	} else {
-		entries = g.knowledge.List()
+		entries = g.deps.Knowledge.List()
 	}
-	writeJSON(w, http.StatusOK, entries)
+	writeJSON(w, http.StatusOK, paginate(entries, limit, offset))
 }

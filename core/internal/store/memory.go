@@ -7,6 +7,8 @@ import (
 	"github.com/kienbui1995/magic/core/internal/protocol"
 )
 
+// MemoryStore is an in-memory implementation of the Store interface.
+// All Get/List methods return copies to prevent external mutations.
 type MemoryStore struct {
 	mu        sync.RWMutex
 	workers   map[string]*protocol.Worker
@@ -16,6 +18,7 @@ type MemoryStore struct {
 	knowledge map[string]*protocol.KnowledgeEntry
 }
 
+// NewMemoryStore creates a new in-memory store.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		workers:   make(map[string]*protocol.Worker),

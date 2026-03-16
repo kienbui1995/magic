@@ -6,8 +6,10 @@ import (
 	"github.com/kienbui1995/magic/core/internal/protocol"
 )
 
+// ErrNotFound is returned when a requested entity does not exist.
 var ErrNotFound = fmt.Errorf("not found")
 
+// Store defines the persistence interface for all MagiC entities.
 type Store interface {
 	AddWorker(w *protocol.Worker) error
 	GetWorker(id string) (*protocol.Worker, error)

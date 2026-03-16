@@ -63,7 +63,19 @@ func runServer() {
 	mgr := orgmgr.New(s, bus)
 	kb := knowledge.New(s, bus)
 
-	gw := gateway.New(reg, rt, s, bus, mon, cc, ev, orch, mgr, kb, disp)
+	gw := gateway.New(gateway.Deps{
+		Registry:     reg,
+		Router:       rt,
+		Store:        s,
+		Bus:          bus,
+		Monitor:      mon,
+		CostCtrl:     cc,
+		Evaluator:    ev,
+		Orchestrator: orch,
+		OrgMgr:       mgr,
+		Knowledge:    kb,
+		Dispatcher:   disp,
+	})
 
 	srv := &http.Server{
 		Addr:              ":" + port,
