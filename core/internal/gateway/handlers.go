@@ -101,6 +101,15 @@ func (g *Gateway) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+func (g *Gateway) handleDeregisterWorker(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := g.deps.Registry.Deregister(id); err != nil {
+		writeError(w, http.StatusNotFound, "worker not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
 func (g *Gateway) handleSubmitTask(w http.ResponseWriter, r *http.Request) {
 	var task protocol.Task
 	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
