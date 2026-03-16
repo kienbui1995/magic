@@ -85,3 +85,58 @@ func TestMemoryStore_Tasks(t *testing.T) {
 		t.Errorf("Status: got %q, want completed", got.Status)
 	}
 }
+
+func TestMemoryStore_Workflows(t *testing.T) {
+	s := store.NewMemoryStore()
+	wf := &protocol.Workflow{ID: "wf_001", Name: "Test Workflow", Status: protocol.WorkflowPending,
+		Steps: []protocol.WorkflowStep{{ID: "step1", TaskType: "greeting", Status: protocol.StepPending}}}
+	if err := s.AddWorkflow(wf); err != nil {
+		t.Fatalf("AddWorkflow: %v", err)
+	}
+	got, err := s.GetWorkflow("wf_001")
+	if err != nil {
+		t.Fatalf("GetWorkflow: %v", err)
+	}
+	if got.Name != "Test Workflow" {
+		t.Errorf("Name: got %q", got.Name)
+	}
+	wf.Status = protocol.WorkflowRunning
+	if err := s.UpdateWorkflow(wf); err != nil {
+		t.Fatalf("UpdateWorkflow: %v", err)
+	}
+	got, _ = s.GetWorkflow("wf_001")
+	if got.Status != protocol.WorkflowRunning {
+		t.Errorf("Status: got %q", got.Status)
+	}
+	if len(s.ListWorkflows()) != 1 {
+		t.Errorf("ListWorkflows: got %d", len(s.ListWorkflows()))
+	}
+}
+
+func TestMemoryStore_Teams(t *testing.T) {
+	s := store.NewMemoryStore()
+	team := &protocol.Team{ID: "team_001", Name: "Marketing", OrgID: "org_magic", DailyBudget: 10.0}
+	if err := s.AddTeam(team); err != nil {
+		t.Fatalf("AddTeam: %v", err)
+	}
+	got, err := s.GetTeam("team_001")
+	if err != nil {
+		t.Fatalf("GetTeam: %v", err)
+	}
+	if got.Name != "Marketing" {
+		t.Errorf("Name: got %q", got.Name)
+	}
+	team.Workers = []string{"worker_001"}
+	if err := s.UpdateTeam(team); err != nil {
+		t.Fatalf("UpdateTeam: %v", err)
+	}
+	if len(s.ListTeams()) != 1 {
+		t.Errorf("ListTeams: got %d", len(s.ListTeams()))
+	}
+	if err := s.RemoveTeam("team_001"); err != nil {
+		t.Fatalf("RemoveTeam: %v", err)
+	}
+	if _, err := s.GetTeam("team_001"); err == nil {
+		t.Error("should fail after remove")
+	}
+}

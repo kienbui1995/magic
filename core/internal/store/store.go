@@ -20,4 +20,17 @@ type Store interface {
 	GetTask(id string) (*protocol.Task, error)
 	UpdateTask(t *protocol.Task) error
 	ListTasks() []*protocol.Task
+
+	// Workflows
+	AddWorkflow(w *protocol.Workflow) error
+	GetWorkflow(id string) (*protocol.Workflow, error)
+	UpdateWorkflow(w *protocol.Workflow) error
+	ListWorkflows() []*protocol.Workflow
+
+	// Teams
+	AddTeam(t *protocol.Team) error
+	GetTeam(id string) (*protocol.Team, error)
+	UpdateTeam(t *protocol.Team) error
+	RemoveTeam(id string) error
+	ListTeams() []*protocol.Team
 }
