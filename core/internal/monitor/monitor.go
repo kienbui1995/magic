@@ -2,11 +2,13 @@ package monitor
 
 import (
 	"io"
+	"sync"
 	"sync/atomic"
 
 	"github.com/kienbui1995/magic/core/internal/events"
 )
 
+// Stats represents system-wide metrics.
 type Stats struct {
 	TotalEvents  int64 `json:"total_events"`
 	TasksRouted  int64 `json:"tasks_routed"`
@@ -15,16 +17,20 @@ type Stats struct {
 	WorkersCount int64 `json:"workers_count"`
 }
 
+// Monitor tracks system events and outputs structured logs.
 type Monitor struct {
-	bus    *events.Bus
-	writer io.Writer
-	stats  Stats
+	bus      *events.Bus
+	writer   io.Writer
+	writerMu sync.Mutex
+	stats    Stats
 }
 
+// New creates a new Monitor that writes logs to the given writer.
 func New(bus *events.Bus, writer io.Writer) *Monitor {
 	return &Monitor{bus: bus, writer: writer}
 }
 
+// Start subscribes to all events and begins logging.
 func (m *Monitor) Start() {
 	m.bus.Subscribe("*", func(e events.Event) {
 		atomic.AddInt64(&m.stats.TotalEvents, 1)
@@ -42,10 +48,11 @@ func (m *Monitor) Start() {
 			atomic.AddInt64(&m.stats.WorkersCount, -1)
 		}
 
-		writeLogEntry(m.writer, e)
+		writeLogEntry(m.writer, &m.writerMu, e)
 	})
 }
 
+// Stats returns current system metrics atomically.
 func (m *Monitor) Stats() Stats {
 	return Stats{
 		TotalEvents:  atomic.LoadInt64(&m.stats.TotalEvents),

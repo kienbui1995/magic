@@ -8,15 +8,18 @@ import (
 	"github.com/kienbui1995/magic/core/internal/store"
 )
 
+// Registry manages worker registration, heartbeats, and discovery.
 type Registry struct {
 	store store.Store
 	bus   *events.Bus
 }
 
+// New creates a new worker registry.
 func New(s store.Store, bus *events.Bus) *Registry {
 	return &Registry{store: s, bus: bus}
 }
 
+// Register adds a new worker to the system.
 func (r *Registry) Register(p protocol.RegisterPayload) (*protocol.Worker, error) {
 	w := &protocol.Worker{
 		ID:            protocol.GenerateID("worker"),
@@ -46,6 +49,7 @@ func (r *Registry) Register(p protocol.RegisterPayload) (*protocol.Worker, error
 	return w, nil
 }
 
+// Deregister removes a worker from the system.
 func (r *Registry) Deregister(workerID string) error {
 	if err := r.store.RemoveWorker(workerID); err != nil {
 		return err
@@ -60,6 +64,7 @@ func (r *Registry) Deregister(workerID string) error {
 	return nil
 }
 
+// Heartbeat updates a worker's health status. Does not override "paused" status.
 func (r *Registry) Heartbeat(p protocol.HeartbeatPayload) error {
 	w, err := r.store.GetWorker(p.WorkerID)
 	if err != nil {
@@ -67,7 +72,7 @@ func (r *Registry) Heartbeat(p protocol.HeartbeatPayload) error {
 	}
 	w.LastHeartbeat = time.Now()
 	w.CurrentLoad = p.CurrentLoad
-	if p.Status != "" {
+	if p.Status != "" && w.Status != protocol.StatusPaused {
 		w.Status = p.Status
 	}
 	return r.store.UpdateWorker(w)

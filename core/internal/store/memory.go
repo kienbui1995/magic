@@ -1,11 +1,14 @@
 package store
 
 import (
+	"strings"
 	"sync"
 
 	"github.com/kienbui1995/magic/core/internal/protocol"
 )
 
+// MemoryStore is an in-memory implementation of the Store interface.
+// All Get/List methods return copies to prevent external mutations.
 type MemoryStore struct {
 	mu        sync.RWMutex
 	workers   map[string]*protocol.Worker
@@ -15,6 +18,7 @@ type MemoryStore struct {
 	knowledge map[string]*protocol.KnowledgeEntry
 }
 
+// NewMemoryStore creates a new in-memory store.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		workers:   make(map[string]*protocol.Worker),
@@ -28,7 +32,8 @@ func NewMemoryStore() *MemoryStore {
 func (s *MemoryStore) AddWorker(w *protocol.Worker) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.workers[w.ID] = w
+	copy := *w
+	s.workers[w.ID] = &copy
 	return nil
 }
 
@@ -39,7 +44,8 @@ func (s *MemoryStore) GetWorker(id string) (*protocol.Worker, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return w, nil
+	copy := *w
+	return &copy, nil
 }
 
 func (s *MemoryStore) UpdateWorker(w *protocol.Worker) error {
@@ -48,7 +54,8 @@ func (s *MemoryStore) UpdateWorker(w *protocol.Worker) error {
 	if _, ok := s.workers[w.ID]; !ok {
 		return ErrNotFound
 	}
-	s.workers[w.ID] = w
+	copy := *w
+	s.workers[w.ID] = &copy
 	return nil
 }
 
@@ -67,7 +74,8 @@ func (s *MemoryStore) ListWorkers() []*protocol.Worker {
 	defer s.mu.RUnlock()
 	result := make([]*protocol.Worker, 0, len(s.workers))
 	for _, w := range s.workers {
-		result = append(result, w)
+		copy := *w
+		result = append(result, &copy)
 	}
 	return result
 }
@@ -82,7 +90,8 @@ func (s *MemoryStore) FindWorkersByCapability(capability string) []*protocol.Wor
 		}
 		for _, cap := range w.Capabilities {
 			if cap.Name == capability {
-				result = append(result, w)
+				copy := *w
+				result = append(result, &copy)
 				break
 			}
 		}
@@ -93,7 +102,8 @@ func (s *MemoryStore) FindWorkersByCapability(capability string) []*protocol.Wor
 func (s *MemoryStore) AddTask(t *protocol.Task) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.tasks[t.ID] = t
+	copy := *t
+	s.tasks[t.ID] = &copy
 	return nil
 }
 
@@ -104,7 +114,8 @@ func (s *MemoryStore) GetTask(id string) (*protocol.Task, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return t, nil
+	copy := *t
+	return &copy, nil
 }
 
 func (s *MemoryStore) UpdateTask(t *protocol.Task) error {
@@ -113,7 +124,8 @@ func (s *MemoryStore) UpdateTask(t *protocol.Task) error {
 	if _, ok := s.tasks[t.ID]; !ok {
 		return ErrNotFound
 	}
-	s.tasks[t.ID] = t
+	copy := *t
+	s.tasks[t.ID] = &copy
 	return nil
 }
 
@@ -122,7 +134,8 @@ func (s *MemoryStore) ListTasks() []*protocol.Task {
 	defer s.mu.RUnlock()
 	result := make([]*protocol.Task, 0, len(s.tasks))
 	for _, t := range s.tasks {
-		result = append(result, t)
+		copy := *t
+		result = append(result, &copy)
 	}
 	return result
 }
@@ -130,7 +143,8 @@ func (s *MemoryStore) ListTasks() []*protocol.Task {
 func (s *MemoryStore) AddWorkflow(w *protocol.Workflow) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.workflows[w.ID] = w
+	copy := *w
+	s.workflows[w.ID] = &copy
 	return nil
 }
 
@@ -141,7 +155,8 @@ func (s *MemoryStore) GetWorkflow(id string) (*protocol.Workflow, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return w, nil
+	copy := *w
+	return &copy, nil
 }
 
 func (s *MemoryStore) UpdateWorkflow(w *protocol.Workflow) error {
@@ -150,7 +165,8 @@ func (s *MemoryStore) UpdateWorkflow(w *protocol.Workflow) error {
 	if _, ok := s.workflows[w.ID]; !ok {
 		return ErrNotFound
 	}
-	s.workflows[w.ID] = w
+	copy := *w
+	s.workflows[w.ID] = &copy
 	return nil
 }
 
@@ -159,7 +175,8 @@ func (s *MemoryStore) ListWorkflows() []*protocol.Workflow {
 	defer s.mu.RUnlock()
 	result := make([]*protocol.Workflow, 0, len(s.workflows))
 	for _, w := range s.workflows {
-		result = append(result, w)
+		copy := *w
+		result = append(result, &copy)
 	}
 	return result
 }
@@ -167,7 +184,8 @@ func (s *MemoryStore) ListWorkflows() []*protocol.Workflow {
 func (s *MemoryStore) AddTeam(t *protocol.Team) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.teams[t.ID] = t
+	copy := *t
+	s.teams[t.ID] = &copy
 	return nil
 }
 
@@ -178,7 +196,8 @@ func (s *MemoryStore) GetTeam(id string) (*protocol.Team, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return t, nil
+	copy := *t
+	return &copy, nil
 }
 
 func (s *MemoryStore) UpdateTeam(t *protocol.Team) error {
@@ -187,7 +206,8 @@ func (s *MemoryStore) UpdateTeam(t *protocol.Team) error {
 	if _, ok := s.teams[t.ID]; !ok {
 		return ErrNotFound
 	}
-	s.teams[t.ID] = t
+	copy := *t
+	s.teams[t.ID] = &copy
 	return nil
 }
 
@@ -206,7 +226,8 @@ func (s *MemoryStore) ListTeams() []*protocol.Team {
 	defer s.mu.RUnlock()
 	result := make([]*protocol.Team, 0, len(s.teams))
 	for _, t := range s.teams {
-		result = append(result, t)
+		copy := *t
+		result = append(result, &copy)
 	}
 	return result
 }
@@ -214,7 +235,8 @@ func (s *MemoryStore) ListTeams() []*protocol.Team {
 func (s *MemoryStore) AddKnowledge(k *protocol.KnowledgeEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.knowledge[k.ID] = k
+	copy := *k
+	s.knowledge[k.ID] = &copy
 	return nil
 }
 
@@ -225,7 +247,8 @@ func (s *MemoryStore) GetKnowledge(id string) (*protocol.KnowledgeEntry, error) 
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return k, nil
+	copy := *k
+	return &copy, nil
 }
 
 func (s *MemoryStore) UpdateKnowledge(k *protocol.KnowledgeEntry) error {
@@ -234,7 +257,8 @@ func (s *MemoryStore) UpdateKnowledge(k *protocol.KnowledgeEntry) error {
 	if _, ok := s.knowledge[k.ID]; !ok {
 		return ErrNotFound
 	}
-	s.knowledge[k.ID] = k
+	copy := *k
+	s.knowledge[k.ID] = &copy
 	return nil
 }
 
@@ -253,7 +277,8 @@ func (s *MemoryStore) ListKnowledge() []*protocol.KnowledgeEntry {
 	defer s.mu.RUnlock()
 	result := make([]*protocol.KnowledgeEntry, 0, len(s.knowledge))
 	for _, k := range s.knowledge {
-		result = append(result, k)
+		copy := *k
+		result = append(result, &copy)
 	}
 	return result
 }
@@ -262,51 +287,22 @@ func (s *MemoryStore) SearchKnowledge(query string) []*protocol.KnowledgeEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var result []*protocol.KnowledgeEntry
-	queryLower := toLower(query)
+	queryLower := strings.ToLower(query)
 	for _, k := range s.knowledge {
 		// Check if query matches title, content, or any tag
-		if contains(toLower(k.Title), queryLower) ||
-			contains(toLower(k.Content), queryLower) ||
+		if strings.Contains(strings.ToLower(k.Title), queryLower) ||
+			strings.Contains(strings.ToLower(k.Content), queryLower) ||
 			containsTag(k.Tags, queryLower) {
-			result = append(result, k)
+			copy := *k
+			result = append(result, &copy)
 		}
 	}
 	return result
 }
 
-func toLower(s string) string {
-	// Simple lowercase conversion for ASCII
-	result := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			result[i] = c + 32
-		} else {
-			result[i] = c
-		}
-	}
-	return string(result)
-}
-
-func contains(s, substr string) bool {
-	// Simple substring check
-	if len(substr) == 0 {
-		return true
-	}
-	if len(s) < len(substr) {
-		return false
-	}
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
-
 func containsTag(tags []string, query string) bool {
 	for _, tag := range tags {
-		if toLower(tag) == query {
+		if strings.ToLower(tag) == query {
 			return true
 		}
 	}

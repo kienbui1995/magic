@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/kienbui1995/magic/core/internal/events"
@@ -17,7 +18,7 @@ type LogEntry struct {
 	Payload   map[string]any `json:"payload,omitempty"`
 }
 
-func writeLogEntry(w io.Writer, e events.Event) {
+func writeLogEntry(w io.Writer, mu *sync.Mutex, e events.Event) {
 	level := "info"
 	switch e.Severity {
 	case "warn":
@@ -38,5 +39,7 @@ func writeLogEntry(w io.Writer, e events.Event) {
 	if err != nil {
 		return
 	}
+	mu.Lock()
 	fmt.Fprintf(w, "%s\n", data)
+	mu.Unlock()
 }

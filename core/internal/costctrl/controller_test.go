@@ -1,6 +1,7 @@
 package costctrl_test
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -31,12 +32,19 @@ func TestCostController_BudgetAlert(t *testing.T) {
 	bus := events.NewBus()
 	cc := costctrl.New(s, bus)
 	var alerts []events.Event
-	bus.Subscribe("budget.threshold", func(e events.Event) { alerts = append(alerts, e) })
+	var mu sync.Mutex
+	bus.Subscribe("budget.threshold", func(e events.Event) {
+		mu.Lock()
+		alerts = append(alerts, e)
+		mu.Unlock()
+	})
 	w := &protocol.Worker{ID: "worker_001", Name: "Bot", Status: protocol.StatusActive,
 		Limits: protocol.WorkerLimits{MaxCostPerDay: 1.0}}
 	s.AddWorker(w)
 	cc.RecordCost("worker_001", "task_001", 0.85)
 	time.Sleep(50 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
 	if len(alerts) == 0 {
 		t.Error("should have received budget alert at 80%")
 	}

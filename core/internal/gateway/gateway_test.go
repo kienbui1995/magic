@@ -36,7 +36,19 @@ func setupGateway() *gateway.Gateway {
 	orch := orchestrator.New(s, rt, bus, disp)
 	mgr := orgmgr.New(s, bus)
 	kb := knowledge.New(s, bus)
-	return gateway.New(reg, rt, s, bus, mon, cc, ev, orch, mgr, kb, disp)
+	return gateway.New(gateway.Deps{
+		Registry:     reg,
+		Router:       rt,
+		Store:        s,
+		Bus:          bus,
+		Monitor:      mon,
+		CostCtrl:     cc,
+		Evaluator:    ev,
+		Orchestrator: orch,
+		OrgMgr:       mgr,
+		Knowledge:    kb,
+		Dispatcher:   disp,
+	})
 }
 
 func TestGateway_Health(t *testing.T) {

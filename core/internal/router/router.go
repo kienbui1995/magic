@@ -10,18 +10,22 @@ import (
 	"github.com/kienbui1995/magic/core/internal/store"
 )
 
+// ErrNoWorkerAvailable is returned when no suitable worker is found for a task.
 var ErrNoWorkerAvailable = fmt.Errorf("no worker available for task")
 
+// Router selects the best worker for a task based on routing strategy.
 type Router struct {
 	registry *registry.Registry
 	store    store.Store
 	bus      *events.Bus
 }
 
+// New creates a new task router.
 func New(reg *registry.Registry, s store.Store, bus *events.Bus) *Router {
 	return &Router{registry: reg, store: s, bus: bus}
 }
 
+// RouteTask selects a worker for the task using the configured routing strategy.
 func (r *Router) RouteTask(task *protocol.Task) (*protocol.Worker, error) {
 	allWorkers := r.registry.ListWorkers()
 	capable := filterByCapability(allWorkers, task.Routing.RequiredCapabilities)

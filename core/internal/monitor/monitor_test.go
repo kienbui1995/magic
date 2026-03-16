@@ -3,6 +3,7 @@ package monitor_test
 import (
 	"bytes"
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,15 +11,39 @@ import (
 	"github.com/kienbui1995/magic/core/internal/monitor"
 )
 
+// safeBuffer is a thread-safe bytes.Buffer for testing.
+type safeBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (sb *safeBuffer) Write(p []byte) (n int, err error) {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	return sb.buf.Write(p)
+}
+
+func (sb *safeBuffer) String() string {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	return sb.buf.String()
+}
+
+func (sb *safeBuffer) Bytes() []byte {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	return append([]byte(nil), sb.buf.Bytes()...)
+}
+
 func TestMonitor_CapturesEvents(t *testing.T) {
 	bus := events.NewBus()
-	var buf bytes.Buffer
-	mon := monitor.New(bus, &buf)
+	buf := &safeBuffer{}
+	mon := monitor.New(bus, buf)
 	mon.Start()
 
 	bus.Publish(events.Event{
-		Type:   "task.completed",
-		Source: "router",
+		Type:    "task.completed",
+		Source:  "router",
 		Payload: map[string]any{"task_id": "task_001"},
 	})
 
@@ -32,8 +57,8 @@ func TestMonitor_CapturesEvents(t *testing.T) {
 
 func TestMonitor_WritesJSON(t *testing.T) {
 	bus := events.NewBus()
-	var buf bytes.Buffer
-	mon := monitor.New(bus, &buf)
+	buf := &safeBuffer{}
+	mon := monitor.New(bus, buf)
 	mon.Start()
 
 	bus.Publish(events.Event{

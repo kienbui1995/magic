@@ -16,34 +16,29 @@ import (
 	"github.com/kienbui1995/magic/core/internal/store"
 )
 
-type Gateway struct {
-	registry     *registry.Registry
-	router       *router.Router
-	store        store.Store
-	bus          *events.Bus
-	monitor      *monitor.Monitor
-	costCtrl     *costctrl.Controller
-	evaluator    *evaluator.Evaluator
-	orchestrator *orchestrator.Orchestrator
-	orgMgr       *orgmgr.Manager
-	knowledge    *knowledge.Hub
-	dispatcher   *dispatcher.Dispatcher
+// Deps holds all dependencies for the Gateway.
+type Deps struct {
+	Registry     *registry.Registry
+	Router       *router.Router
+	Store        store.Store
+	Bus          *events.Bus
+	Monitor      *monitor.Monitor
+	CostCtrl     *costctrl.Controller
+	Evaluator    *evaluator.Evaluator
+	Orchestrator *orchestrator.Orchestrator
+	OrgMgr       *orgmgr.Manager
+	Knowledge    *knowledge.Hub
+	Dispatcher   *dispatcher.Dispatcher
 }
 
-func New(reg *registry.Registry, rt *router.Router, s store.Store, bus *events.Bus, mon *monitor.Monitor, cc *costctrl.Controller, ev *evaluator.Evaluator, orch *orchestrator.Orchestrator, mgr *orgmgr.Manager, kb *knowledge.Hub, disp *dispatcher.Dispatcher) *Gateway {
-	return &Gateway{
-		registry:     reg,
-		router:       rt,
-		store:        s,
-		bus:          bus,
-		monitor:      mon,
-		costCtrl:     cc,
-		evaluator:    ev,
-		orchestrator: orch,
-		orgMgr:       mgr,
-		knowledge:    kb,
-		dispatcher:   disp,
-	}
+// Gateway is the HTTP entry point for the MagiC server.
+type Gateway struct {
+	deps Deps
+}
+
+// New creates a new Gateway with the given dependencies.
+func New(deps Deps) *Gateway {
+	return &Gateway{deps: deps}
 }
 
 func (g *Gateway) Handler() http.Handler {
@@ -56,13 +51,16 @@ func (g *Gateway) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/workers/register", g.handleRegisterWorker)
 	mux.HandleFunc("POST /api/v1/workers/heartbeat", g.handleHeartbeat)
 	mux.HandleFunc("GET /api/v1/workers", g.handleListWorkers)
+	mux.HandleFunc("GET /api/v1/workers/{id}", g.handleGetWorker)
 
 	// Tasks
 	mux.HandleFunc("POST /api/v1/tasks", g.handleSubmitTask)
+	mux.HandleFunc("GET /api/v1/tasks/{id}", g.handleGetTask)
 
 	// Workflows
 	mux.HandleFunc("POST /api/v1/workflows", g.handleSubmitWorkflow)
 	mux.HandleFunc("GET /api/v1/workflows", g.handleListWorkflows)
+	mux.HandleFunc("GET /api/v1/workflows/{id}", g.handleGetWorkflow)
 
 	// Teams
 	mux.HandleFunc("POST /api/v1/teams", g.handleCreateTeam)

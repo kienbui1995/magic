@@ -33,12 +33,14 @@ const (
 	PriorityCritical = "critical"
 )
 
+// GenerateID creates a unique identifier with the given prefix.
 func GenerateID(prefix string) string {
 	b := make([]byte, 8)
 	rand.Read(b)
 	return fmt.Sprintf("%s_%s", prefix, hex.EncodeToString(b))
 }
 
+// Capability represents a skill or function that a worker can perform.
 type Capability struct {
 	Name           string          `json:"name"`
 	Description    string          `json:"description"`
