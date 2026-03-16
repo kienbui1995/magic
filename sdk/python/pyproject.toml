@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "magic"
+name = "magic-claw"
 version = "0.1.0"
 description = "MagiC Python SDK — Build AI workers for the MagiC framework"
 requires-python = ">=3.11"

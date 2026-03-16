@@ -15,20 +15,33 @@ ContentBot  SEOBot  LeadBot  CodeBot
 
 ## Quick Start (< 5 minutes)
 
-**1. Start the MagiC server**
+### Option A: From source
+
+**Prerequisites:** Go 1.22+, Python 3.11+
 
 ```bash
+# 1. Clone and build
 git clone https://github.com/kienbui1995/magic.git
-cd magic/core
-go build -o ../bin/magic ./cmd/magic
-../bin/magic serve
+cd magic
+cd core && go build -o ../bin/magic ./cmd/magic && cd ..
+
+# 2. Start the server
+./bin/magic serve
+
+# 3. Install Python SDK
+cd sdk/python && pip install -e . && cd ../..
 ```
 
-**2. Create a worker in Python (10 lines)**
+### Option B: Docker
 
 ```bash
-pip install magic
+docker build -t magic .
+docker run -p 8080:8080 magic
 ```
+
+### Create your first worker
+
+Save as `worker.py`:
 
 ```python
 from magic_claw import Worker
@@ -39,13 +52,21 @@ worker = Worker(name="HelloBot", endpoint="http://localhost:9000")
 def greet(name: str) -> str:
     return f"Hello, {name}! I'm managed by MagiC."
 
-worker.register("http://localhost:8080")
-worker.serve()
+if __name__ == "__main__":
+    worker.register("http://localhost:8080")  # connect to MagiC server
+    worker.serve()                            # start listening on :9000
 ```
 
-**3. Submit a task**
+```bash
+python worker.py
+# Output: Registered as worker_abc123
+#         HelloBot serving on 0.0.0.0:9000
+```
+
+### Submit a task
 
 ```bash
+# Submit — MagiC routes to HelloBot and dispatches automatically
 curl -X POST http://localhost:8080/api/v1/tasks \
   -H "Content-Type: application/json" \
   -d '{
@@ -54,9 +75,38 @@ curl -X POST http://localhost:8080/api/v1/tasks \
     "routing": {"strategy": "best_match", "required_capabilities": ["greeting"]},
     "contract": {"timeout_ms": 30000, "max_cost": 1.0}
   }'
+
+# Check result (use the task_id from response above)
+curl http://localhost:8080/api/v1/tasks/{task_id}
 ```
 
-MagiC finds the best worker, dispatches the task via HTTP, and returns the result. That's it.
+### Enable authentication
+
+```bash
+MAGIC_API_KEY=your-secret-key ./bin/magic serve
+```
+
+Workers and API calls must include the key:
+```bash
+curl -H "Authorization: Bearer your-secret-key" http://localhost:8080/api/v1/workers
+```
+
+## Examples
+
+| Example | Description | Location |
+|---------|-------------|----------|
+| **Hello Worker** | Minimal 10-line worker | [`examples/hello-worker/`](examples/hello-worker/) |
+| **Multi-Worker** | 2 workers + workflow + cost tracking | [`examples/multi-worker/`](examples/multi-worker/) |
+
+Run the multi-worker example:
+```bash
+# Terminal 1: Start MagiC server
+./bin/magic serve
+
+# Terminal 2: Start workers + submit tasks
+pip install httpx  # required for the example
+python examples/multi-worker/main.py
+```
 
 ## Why MagiC?
 
@@ -75,11 +125,11 @@ MagiC finds the best worker, dispatches the task via HTTP, and returns the resul
 |---|---|---|---|---|
 | Approach | Build agents | Build agents | Build graphs | **Manage any agent** |
 | Protocol | Closed | Closed | Closed | **Open (MCP²)** |
-| Language lock-in | Python | Python | Python | **Any (Go core, Python/Go SDK)** |
+| Language lock-in | Python | Python | Python | **Any (Go core, Python SDK)** |
 | Cost control | No | No | No | **Budget alerts + auto-pause** |
 | Multi-step workflows | Flow | Event-driven | Graph | **DAG orchestrator** |
 | Worker discovery | No | No | No | **Capability-based routing** |
-| Organization model | Crew | GroupChat | Graph | **Org → Teams → Workers** |
+| Organization model | Crew | GroupChat | Graph | **Org > Teams > Workers** |
 
 **MagiC doesn't replace CrewAI/LangChain — it manages them.** Your CrewAI agent becomes a MagiC worker. Your LangChain chain becomes a MagiC worker. They join the same organization and work together.
 
@@ -89,16 +139,16 @@ MagiC finds the best worker, dispatches the task via HTTP, and returns the resul
                 ┌──────────────────────────────────────────────┐
                 │              MagiC Core (Go)                 │
                 ├──────────────────────────────────────────────┤
-  HTTP Request ─►  Gateway (auth, rate limit, request ID)      │
+  HTTP Request ─>  Gateway (auth, body limit, request ID)      │
                 │    │                                         │
-                │    ▼                                         │
-                │  Router ──► Registry (find best worker)      │
+                │    v                                         │
+                │  Router ──> Registry (find best worker)      │
                 │    │          │                               │
-                │    ▼          ▼                               │
-                │  Dispatcher ──► Worker A (HTTP POST)         │
+                │    v          v                               │
+                │  Dispatcher ──> Worker A (HTTP POST)         │
                 │    │              Worker B                    │
                 │    │              Worker C                    │
-                │    ▼                                         │
+                │    v                                         │
                 │  Orchestrator (multi-step DAG workflows)     │
                 │  Evaluator (output quality validation)       │
                 │  Cost Controller (budget tracking)           │
@@ -108,43 +158,14 @@ MagiC finds the best worker, dispatches the task via HTTP, and returns the resul
                 └──────────────────────────────────────────────┘
 ```
 
-### 9 Modules
+### How it works
 
-| Tier | Module | Purpose |
-|------|--------|---------|
-| **Core** | Gateway | HTTP entry point, middleware, routing |
-| **Core** | Registry | Worker registration, heartbeat, health checks |
-| **Core** | Router | Task routing (best_match, cheapest, round_robin) |
-| **Core** | Monitor | Event bus, structured JSON logging, metrics |
-| **Diff** | Orchestrator | Multi-step workflow DAG execution |
-| **Diff** | Evaluator | JSON schema validation for task output |
-| **Diff** | Cost Controller | Budget tracking, alerts, auto-pause |
-| **Diff** | Org Manager | Team CRUD, worker-to-team assignment |
-| **Bonus** | Knowledge Hub | Shared knowledge base with search |
-
-Plus: **Dispatcher** — HTTP task dispatch to worker endpoints.
-
-### Protocol: MCP² (MagiC Protocol)
-
-Transport-agnostic JSON messages. 14 message types:
-
-- **Worker lifecycle:** register, heartbeat, deregister, update_capabilities
-- **Task lifecycle:** assign, accept, reject, progress, complete, fail
-- **Collaboration:** delegate, broadcast
-- **Direct channel:** open_channel, close_channel
-
-```json
-{
-  "protocol": "mcp2",
-  "version": "1.0",
-  "type": "task.assign",
-  "id": "msg_abc123",
-  "timestamp": "2026-03-16T10:00:00Z",
-  "source": "org_magic",
-  "target": "worker_001",
-  "payload": { "task_id": "task_001", "task_type": "greeting", "input": {"name": "World"} }
-}
-```
+1. **Worker registers** with MagiC, declaring its capabilities (e.g., "content_writing", "data_analysis")
+2. **User submits a task** via REST API with required capabilities
+3. **Router finds the best worker** based on strategy (best_match, cheapest, etc.)
+4. **Dispatcher sends HTTP POST** to the worker's endpoint with `task.assign` message
+5. **Worker processes and responds** with `task.complete` or `task.fail`
+6. **Cost Controller tracks spending**, Monitor logs everything, Evaluator validates output
 
 ## API Reference
 
@@ -153,10 +174,14 @@ Transport-agnostic JSON messages. 14 message types:
 | `GET` | `/health` | Health check |
 | `POST` | `/api/v1/workers/register` | Register a worker |
 | `POST` | `/api/v1/workers/heartbeat` | Worker heartbeat |
-| `GET` | `/api/v1/workers` | List workers |
+| `GET` | `/api/v1/workers` | List workers (`?limit=&offset=`) |
+| `GET` | `/api/v1/workers/{id}` | Get worker by ID |
 | `POST` | `/api/v1/tasks` | Submit a task (auto-routes + dispatches) |
+| `GET` | `/api/v1/tasks` | List tasks (`?limit=&offset=`) |
+| `GET` | `/api/v1/tasks/{id}` | Get task by ID (poll for completion) |
 | `POST` | `/api/v1/workflows` | Submit a multi-step workflow |
-| `GET` | `/api/v1/workflows` | List workflows |
+| `GET` | `/api/v1/workflows` | List workflows (`?limit=&offset=`) |
+| `GET` | `/api/v1/workflows/{id}` | Get workflow by ID |
 | `POST` | `/api/v1/teams` | Create a team |
 | `GET` | `/api/v1/teams` | List teams |
 | `GET` | `/api/v1/costs` | Organization cost report |
@@ -186,14 +211,22 @@ curl -X POST http://localhost:8080/api/v1/workflows \
 ```
       research
        /    \
-  content    leads       ← parallel
+  content    leads       <- parallel
      |         |
     seo        |
       \       /
-     outreach            ← waits for both branches
+     outreach            <- waits for both branches
 ```
 
 Failure handling per step: `retry`, `skip`, `abort`, `reassign`.
+
+## Configuration
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `MAGIC_PORT` | `8080` | Server port |
+| `MAGIC_API_KEY` | _(empty = no auth)_ | API key for authentication |
+| `MAGIC_CORS_ORIGIN` | `*` | Allowed CORS origin |
 
 ## Project Structure
 
@@ -203,9 +236,9 @@ magic/
 │   ├── cmd/magic/main.go           # CLI entrypoint
 │   └── internal/
 │       ├── protocol/               # MCP² types & messages
-│       ├── store/                   # Storage interface + in-memory
-│       ├── events/                  # Event bus (pub/sub)
-│       ├── gateway/                 # HTTP server + middleware
+│       ├── store/                  # Storage interface + in-memory
+│       ├── events/                 # Event bus (pub/sub)
+│       ├── gateway/                # HTTP server + middleware
 │       ├── registry/               # Worker registration
 │       ├── router/                 # Task routing strategies
 │       ├── dispatcher/             # HTTP dispatch to workers
@@ -215,14 +248,16 @@ magic/
 │       ├── costctrl/               # Budget tracking
 │       ├── orgmgr/                 # Team management
 │       └── knowledge/              # Knowledge hub
-├── sdk/python/                     # Python SDK (pip install magic)
+├── sdk/python/                     # Python SDK (pip install magic-claw)
 │   ├── magic_claw/
 │   │   ├── worker.py               # Worker class
 │   │   ├── client.py               # HTTP client
 │   │   └── decorators.py           # @capability decorator
 │   └── tests/
 ├── examples/
-│   └── hello-worker/main.py        # 10-line example
+│   ├── hello-worker/main.py        # 10-line minimal example
+│   └── multi-worker/main.py        # 2 workers + workflow + costs
+├── Dockerfile                      # Multi-stage Docker build
 └── docs/
     └── superpowers/
         └── specs/                  # Design specification
@@ -234,8 +269,8 @@ magic/
 # Build
 cd core && go build -o ../bin/magic ./cmd/magic
 
-# Run tests
-cd core && go test ./... -v
+# Run tests (with race detection)
+cd core && go test ./... -v -race
 
 # Run single package test
 cd core && go test ./internal/router/ -v
@@ -253,7 +288,7 @@ python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 - **Core:** Go 1.22+ (goroutines, small binary, K8s/Docker precedent)
 - **SDK:** Python 3.11+ (AI/ML ecosystem)
-- **Protocol:** JSON over HTTP (WebSocket/gRPC planned)
+- **Protocol:** MCP² — JSON over HTTP (WebSocket/gRPC planned)
 - **Storage:** In-memory (SQLite/PostgreSQL planned)
 - **License:** Apache 2.0
 
@@ -263,13 +298,12 @@ python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 - [x] Differentiators — Orchestrator, Evaluator, Cost Controller, Org Manager
 - [x] Knowledge Hub — Shared knowledge base
 - [x] HTTP Dispatch — Actual task execution via worker endpoints
-- [ ] Docker — `docker run magic`
+- [x] Security — API key auth, SSRF protection, body limits
+- [x] Docker — Multi-stage Dockerfile
 - [ ] Go SDK — Native Go workers
 - [ ] Persistent storage — SQLite/PostgreSQL
 - [ ] WebSocket — Real-time worker communication
 - [ ] Dashboard — Web UI for monitoring
-- [ ] Authentication — API key / JWT
-- [ ] Rate limiting — Per-user/team throttling
 
 ## License
 
