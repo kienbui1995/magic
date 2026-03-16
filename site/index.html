@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MagiC — Where AI becomes a Company</title>
+<meta name="description" content="Open-source framework for managing fleets of AI agents. Kubernetes for AI workers.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0e17;
+  --bg-card: #111827;
+  --bg-card-hover: #1a2332;
+  --border: #1e2d3d;
+  --border-accent: #2dd4bf;
+  --text: #e2e8f0;
+  --text-dim: #64748b;
+  --text-bright: #f8fafc;
+  --accent: #2dd4bf;
+  --accent2: #818cf8;
+  --accent3: #f472b6;
+  --accent4: #fbbf24;
+  --red: #ef4444;
+  --green: #22c55e;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-display: 'Space Grotesk', sans-serif;
+  --font-body: 'DM Sans', sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* Grid background */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(45,212,191,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(45,212,191,0.03) 1px, transparent 1px);
+  background-size: 60px 60px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.container { max-width: 1200px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+
+/* NAV */
+nav {
+  position: fixed; top: 0; left: 0; right: 0;
+  padding: 16px 0;
+  background: rgba(10,14,23,0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  z-index: 100;
+}
+nav .container { display: flex; justify-content: space-between; align-items: center; }
+.logo {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--accent);
+  text-decoration: none;
+  letter-spacing: -0.5px;
+}
+.logo span { color: var(--text-bright); }
+nav .links { display: flex; gap: 28px; align-items: center; }
+nav .links a {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-dim);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+nav .links a:hover { color: var(--accent); }
+.btn-github {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 13px !important;
+  transition: all 0.2s;
+}
+.btn-github:hover { border-color: var(--accent); background: var(--bg-card-hover); }
+
+/* HERO */
+.hero {
+  padding: 160px 0 100px;
+  text-align: center;
+  position: relative;
+}
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  background: rgba(45,212,191,0.08);
+  border: 1px solid rgba(45,212,191,0.2);
+  border-radius: 100px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent);
+  margin-bottom: 32px;
+  animation: fadeUp 0.6s ease;
+}
+.hero-badge .dot { width: 6px; height: 6px; background: var(--green); border-radius: 50%; animation: pulse 2s infinite; }
+
+h1 {
+  font-family: var(--font-display);
+  font-size: clamp(40px, 6vw, 72px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -2px;
+  color: var(--text-bright);
+  margin-bottom: 24px;
+  animation: fadeUp 0.6s ease 0.1s both;
+}
+h1 .highlight {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.hero-sub {
+  font-size: 18px;
+  color: var(--text-dim);
+  max-width: 560px;
+  margin: 0 auto 40px;
+  line-height: 1.7;
+  animation: fadeUp 0.6s ease 0.2s both;
+}
+
+.hero-actions {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  animation: fadeUp 0.6s ease 0.3s both;
+}
+.btn-primary {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 14px 28px;
+  background: var(--accent);
+  color: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(45,212,191,0.3); }
+.btn-secondary {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 14px 28px;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+/* TERMINAL DEMO */
+.terminal {
+  max-width: 700px;
+  margin: 60px auto 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  animation: fadeUp 0.6s ease 0.4s both;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+}
+.terminal-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 16px;
+  background: rgba(0,0,0,0.3);
+  border-bottom: 1px solid var(--border);
+}
+.terminal-dot { width: 10px; height: 10px; border-radius: 50%; }
+.terminal-dot.r { background: var(--red); }
+.terminal-dot.y { background: var(--accent4); }
+.terminal-dot.g { background: var(--green); }
+.terminal-title { margin-left: 8px; font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); }
+.terminal-body {
+  padding: 20px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.8;
+}
+.terminal-body .prompt { color: var(--accent); }
+.terminal-body .cmd { color: var(--text-bright); }
+.terminal-body .comment { color: var(--text-dim); }
+.terminal-body .output { color: var(--accent4); }
+.terminal-body .success { color: var(--green); }
+
+/* STATS BAR */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  margin: 80px 0;
+}
+.stat {
+  background: var(--bg-card);
+  padding: 28px;
+  text-align: center;
+}
+.stat-value {
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.stat-label { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+/* SECTION */
+section { padding: 80px 0; }
+.section-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  margin-bottom: 12px;
+}
+.section-title {
+  font-family: var(--font-display);
+  font-size: clamp(28px, 4vw, 40px);
+  font-weight: 700;
+  color: var(--text-bright);
+  letter-spacing: -1px;
+  margin-bottom: 16px;
+}
+.section-desc {
+  font-size: 16px;
+  color: var(--text-dim);
+  max-width: 600px;
+  margin-bottom: 48px;
+}
+
+/* FEATURES GRID */
+.features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.feature {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 28px;
+  transition: all 0.3s;
+  position: relative;
+  overflow: hidden;
+}
+.feature:hover { border-color: var(--accent); transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.3); }
+.feature-icon {
+  width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(45,212,191,0.1);
+  border-radius: 10px;
+  font-size: 20px;
+  margin-bottom: 16px;
+}
+.feature h3 {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-bright);
+  margin-bottom: 8px;
+}
+.feature p { font-size: 14px; color: var(--text-dim); line-height: 1.6; }
+
+/* COMPARISON */
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.comparison-table th, .comparison-table td {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+.comparison-table th {
+  background: var(--bg-card);
+  color: var(--text-dim);
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.comparison-table td { color: var(--text); }
+.comparison-table tr:hover td { background: var(--bg-card); }
+.comparison-table .check { color: var(--green); }
+.comparison-table .cross { color: var(--red); opacity: 0.5; }
+.comparison-table .magic-col { color: var(--accent); font-weight: 600; }
+
+/* WORKER CODE BLOCK */
+.code-section { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; }
+.code-text .code-tag {
+  display: inline-block;
+  padding: 4px 10px;
+  background: rgba(129,140,248,0.1);
+  border: 1px solid rgba(129,140,248,0.2);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent2);
+  margin-bottom: 16px;
+}
+.code-block {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.8;
+  overflow-x: auto;
+}
+.code-block .kw { color: var(--accent2); }
+.code-block .fn { color: var(--accent); }
+.code-block .str { color: var(--accent4); }
+.code-block .cm { color: var(--text-dim); }
+.code-block .op { color: var(--text-dim); }
+
+/* DAG VIS */
+.dag-section { text-align: center; }
+.dag-visual {
+  display: inline-block;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 40px 60px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 2.2;
+  color: var(--text-dim);
+  margin-top: 32px;
+}
+.dag-visual .node {
+  display: inline-block;
+  padding: 6px 14px;
+  background: rgba(45,212,191,0.1);
+  border: 1px solid rgba(45,212,191,0.3);
+  border-radius: 6px;
+  color: var(--accent);
+  font-weight: 500;
+}
+.dag-visual .node.active { background: rgba(34,197,94,0.15); border-color: var(--green); color: var(--green); }
+.dag-visual .node.waiting { background: rgba(251,191,36,0.1); border-color: var(--accent4); color: var(--accent4); }
+.dag-visual .arrow { color: var(--text-dim); margin: 0 4px; }
+
+/* CTA */
+.cta {
+  text-align: center;
+  padding: 100px 0;
+  position: relative;
+}
+.cta::before {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 600px; height: 600px;
+  background: radial-gradient(circle, rgba(45,212,191,0.06) 0%, transparent 70%);
+  pointer-events: none;
+}
+.cta h2 {
+  font-family: var(--font-display);
+  font-size: 36px;
+  font-weight: 700;
+  color: var(--text-bright);
+  letter-spacing: -1px;
+  margin-bottom: 16px;
+}
+.cta p { color: var(--text-dim); margin-bottom: 32px; }
+.cta-code {
+  display: inline-block;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 24px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--text);
+  margin-top: 24px;
+}
+.cta-code .prompt { color: var(--accent); }
+
+/* FOOTER */
+footer {
+  padding: 40px 0;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* ANIMATIONS */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.animate { opacity: 0; transform: translateY(20px); transition: all 0.6s ease; }
+.animate.visible { opacity: 1; transform: translateY(0); }
+
+/* RESPONSIVE */
+@media (max-width: 768px) {
+  .features { grid-template-columns: 1fr; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .code-section { grid-template-columns: 1fr; }
+  nav .links a:not(.btn-github) { display: none; }
+  .comparison-table { font-size: 11px; }
+  .comparison-table th, .comparison-table td { padding: 10px 8px; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="container">
+    <a href="#" class="logo"><span>Magi</span>C</a>
+    <div class="links">
+      <a href="#features">Features</a>
+      <a href="#compare">Compare</a>
+      <a href="#code">Code</a>
+      <a href="https://github.com/kienbui1995/magic" class="btn-github">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-badge"><span class="dot"></span> Open Source &middot; Apache 2.0</div>
+    <h1>Don't build another AI.<br><span class="highlight">Manage the ones you have.</span></h1>
+    <p class="hero-sub">MagiC is an open-source framework for managing fleets of AI workers. Any agent, any framework, any language &mdash; orchestrated through one protocol.</p>
+    <div class="hero-actions">
+      <a href="#code" class="btn-primary">Get Started</a>
+      <a href="https://github.com/kienbui1995/magic" class="btn-secondary">View on GitHub</a>
+    </div>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot r"></div>
+        <div class="terminal-dot y"></div>
+        <div class="terminal-dot g"></div>
+        <span class="terminal-title">magic serve</span>
+      </div>
+      <div class="terminal-body">
+        <span class="prompt">$</span> <span class="cmd">./magic serve</span><br>
+        <span class="output">MagiC server starting on :8080</span><br>
+        <span class="comment">  Workers: 0 &rarr; </span><span class="success">ContentBot registered</span><br>
+        <span class="comment">  Workers: 1 &rarr; </span><span class="success">SEOBot registered</span><br>
+        <span class="comment">  Workers: 2 &rarr; </span><span class="success">TranslatorBot registered</span><br><br>
+        <span class="prompt">$</span> <span class="cmd">curl POST /api/v1/tasks -d '{"type":"summarize"}'</span><br>
+        <span class="output">  Task task_a1b2 &rarr; routed to ContentBot (best_match)</span><br>
+        <span class="success">  Status: completed &middot; Cost: $0.05 &middot; 1.2s</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STATS -->
+<div class="container">
+  <div class="stats animate">
+    <div class="stat"><div class="stat-value">9</div><div class="stat-label">Modules</div></div>
+    <div class="stat"><div class="stat-value">17</div><div class="stat-label">API Endpoints</div></div>
+    <div class="stat"><div class="stat-value">77</div><div class="stat-label">Tests (race-free)</div></div>
+    <div class="stat"><div class="stat-value">0</div><div class="stat-label">External Deps</div></div>
+  </div>
+</div>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="container">
+    <div class="section-label">Capabilities</div>
+    <div class="section-title">Everything you need to run an AI workforce</div>
+    <div class="section-desc">Nine modules that handle registration, routing, orchestration, cost tracking, and more.</div>
+    <div class="features">
+      <div class="feature animate">
+        <div class="feature-icon">&#x1F50D;</div>
+        <h3>Smart Routing</h3>
+        <p>Route tasks to the best worker by capability match, cost, speed, or custom strategy. Overloaded workers are automatically skipped.</p>
+      </div>
+      <div class="feature animate">
+        <div class="feature-icon">&#x1F4CA;</div>
+        <h3>Cost Control</h3>
+        <p>Track spending per worker and team. Get alerts at 80% budget. Workers auto-pause at 100%. No more surprise bills.</p>
+      </div>
+      <div class="feature animate">
+        <div class="feature-icon">&#x1F500;</div>
+        <h3>DAG Workflows</h3>
+        <p>Multi-step pipelines with parallel execution, dependency resolution, and failure handling (retry, skip, abort).</p>
+      </div>
+      <div class="feature animate">
+        <div class="feature-icon">&#x2705;</div>
+        <h3>Output Validation</h3>
+        <p>JSON schema validation on every task output. Bad results get caught before they reach your users.</p>
+      </div>
+      <div class="feature animate">
+        <div class="feature-icon">&#x1F465;</div>
+        <h3>Team Management</h3>
+        <p>Organize workers into teams with budgets and policies. Assign, remove, and track workers across your organization.</p>
+      </div>
+      <div class="feature animate">
+        <div class="feature-icon">&#x1F4D6;</div>
+        <h3>Knowledge Hub</h3>
+        <p>Shared knowledge base with full-text search. Workers access the same context — no duplicate RAG queries.</p>
+      </div>
+      <div class="feature animate">
+        <div class="feature-icon">&#x1F6E1;</div>
+        <h3>Security</h3>
+        <p>API key auth, SSRF protection, body size limits, configurable CORS, security headers, graceful shutdown.</p>
+      </div>
+      <div class="feature animate">
+        <div class="feature-icon">&#x1F504;</div>
+        <h3>Retry & Recovery</h3>
+        <p>Failed dispatches retry with backoff. Workers report heartbeats. Offline workers get detected and removed.</p>
+      </div>
+      <div class="feature animate">
+        <div class="feature-icon">&#x270B;</div>
+        <h3>Human-in-the-Loop</h3>
+        <p>Approval gates in workflows. Critical steps pause for human review before proceeding.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- COMPARE -->
+<section id="compare">
+  <div class="container">
+    <div class="section-label">Comparison</div>
+    <div class="section-title">Build agents vs. Manage agents</div>
+    <div class="section-desc">Others help you build agents. MagiC manages the agents you already have.</div>
+    <table class="comparison-table animate">
+      <thead>
+        <tr>
+          <th>Feature</th>
+          <th>CrewAI</th>
+          <th>AutoGen</th>
+          <th>LangGraph</th>
+          <th class="magic-col">MagiC</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Approach</td><td>Build agents</td><td>Build agents</td><td>Build graphs</td><td class="magic-col">Manage any agent</td></tr>
+        <tr><td>Protocol</td><td class="cross">Closed</td><td class="cross">Closed</td><td class="cross">Closed</td><td class="check">Open (MCP&#xB2;)</td></tr>
+        <tr><td>Language</td><td>Python only</td><td>Python only</td><td>Python only</td><td class="magic-col">Any language</td></tr>
+        <tr><td>Cost control</td><td class="cross">No</td><td class="cross">No</td><td class="cross">No</td><td class="check">Budget + auto-pause</td></tr>
+        <tr><td>Worker discovery</td><td class="cross">No</td><td class="cross">No</td><td class="cross">No</td><td class="check">Capability routing</td></tr>
+        <tr><td>Approval gates</td><td class="cross">No</td><td class="cross">No</td><td>Partial</td><td class="check">Built-in</td></tr>
+        <tr><td>Output validation</td><td class="cross">No</td><td class="cross">No</td><td class="cross">No</td><td class="check">JSON schema</td></tr>
+        <tr><td>Persistent storage</td><td class="cross">No</td><td>Partial</td><td>Checkpoint</td><td class="check">SQLite</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- CODE -->
+<section id="code">
+  <div class="container">
+    <div class="code-section animate">
+      <div class="code-text">
+        <div class="code-tag">Python SDK</div>
+        <div class="section-title">A worker in 10 lines</div>
+        <div class="section-desc">Any Python function becomes a managed AI worker. Register capabilities, connect to the server, start serving. That's it.</div>
+        <p style="color:var(--text-dim);font-size:14px;margin-top:16px;">Works with CrewAI, LangChain, or plain Python.<br>Your agents. Your framework. MagiC manages.</p>
+      </div>
+      <div class="code-block">
+<span class="kw">from</span> magic_claw <span class="kw">import</span> Worker
+
+worker = Worker(<span class="str">"ContentBot"</span>, <span class="str">"http://localhost:9000"</span>)
+
+<span class="kw">@</span>worker.<span class="fn">capability</span>(<span class="str">"summarize"</span>)
+<span class="kw">def</span> <span class="fn">summarize</span>(text: str) -> str:
+    <span class="cm"># Your logic here (LLM, ML, or plain Python)</span>
+    <span class="kw">return</span> <span class="str">f"Summary of: </span>{text[:50]}<span class="str">..."</span>
+
+worker.<span class="fn">register</span>(<span class="str">"http://localhost:8080"</span>)
+worker.<span class="fn">serve</span>()
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DAG -->
+<section class="dag-section">
+  <div class="container">
+    <div class="section-label">Orchestration</div>
+    <div class="section-title">Multi-step workflows as DAGs</div>
+    <div class="section-desc" style="margin:0 auto 0;">Submit a pipeline. MagiC handles dependencies, parallel execution, retries, and approval gates.</div>
+    <div class="dag-visual animate">
+      <span class="node active">research</span><br>
+      <span class="arrow">&darr;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;</span><br>
+      <span class="node active">content</span> &nbsp;&nbsp;&nbsp;&nbsp; <span class="node active">leads</span><br>
+      <span class="arrow">&darr;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;</span><br>
+      <span class="node">seo</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="arrow">|</span><br>
+      <span class="arrow">&searr;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&swarr;</span><br>
+      <span class="node waiting">&#x270B; approval</span><br>
+      <span class="arrow">&darr;</span><br>
+      <span class="node">outreach</span>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta">
+  <div class="container">
+    <h2>Ready to manage your AI workforce?</h2>
+    <p>Start in under 5 minutes. Zero external dependencies. Apache 2.0.</p>
+    <div class="hero-actions" style="margin-bottom:24px;">
+      <a href="https://github.com/kienbui1995/magic" class="btn-primary">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        Star on GitHub
+      </a>
+      <a href="https://github.com/kienbui1995/magic/blob/main/docs/guides/crewai-integration.md" class="btn-secondary">CrewAI Integration</a>
+    </div>
+    <div class="cta-code">
+      <span class="prompt">$</span> git clone https://github.com/kienbui1995/magic.git && cd magic/core && go build ./cmd/magic && ./magic serve
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    MagiC &mdash; Where AI becomes a Company &middot; Apache 2.0 &middot; Built with Go + Python
+  </div>
+</footer>
+
+<script>
+// Intersection Observer for scroll animations
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+    }
+  });
+}, { threshold: 0.1 });
+
+document.querySelectorAll('.animate').forEach(el => observer.observe(el));
+</script>
+
+</body>
+</html>
