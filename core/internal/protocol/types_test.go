@@ -1,0 +1,91 @@
+package protocol_test
+
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/kienbm/magic-claw/core/internal/protocol"
+)
+
+func TestWorkerSerialization(t *testing.T) {
+	w := protocol.Worker{
+		ID:   "worker_001",
+		Name: "TestBot",
+		Capabilities: []protocol.Capability{
+			{
+				Name:        "greeting",
+				Description: "Says hello",
+			},
+		},
+		Endpoint: protocol.Endpoint{
+			Type: "http",
+			URL:  "http://localhost:9000/mcp2",
+		},
+		Status: protocol.StatusActive,
+	}
+
+	data, err := json.Marshal(w)
+	if err != nil {
+		t.Fatalf("marshal worker: %v", err)
+	}
+
+	var w2 protocol.Worker
+	if err := json.Unmarshal(data, &w2); err != nil {
+		t.Fatalf("unmarshal worker: %v", err)
+	}
+
+	if w2.ID != w.ID {
+		t.Errorf("ID: got %q, want %q", w2.ID, w.ID)
+	}
+	if w2.Name != w.Name {
+		t.Errorf("Name: got %q, want %q", w2.Name, w.Name)
+	}
+	if len(w2.Capabilities) != 1 {
+		t.Fatalf("Capabilities: got %d, want 1", len(w2.Capabilities))
+	}
+	if w2.Status != protocol.StatusActive {
+		t.Errorf("Status: got %q, want %q", w2.Status, protocol.StatusActive)
+	}
+}
+
+func TestTaskSerialization(t *testing.T) {
+	task := protocol.Task{
+		ID:       "task_001",
+		Type:     "greeting",
+		Priority: protocol.PriorityNormal,
+		Status:   protocol.TaskPending,
+		Input:    json.RawMessage(`{"name": "Kien"}`),
+		Contract: protocol.Contract{
+			TimeoutMs: 30000,
+			MaxCost:   0.50,
+		},
+	}
+
+	data, err := json.Marshal(task)
+	if err != nil {
+		t.Fatalf("marshal task: %v", err)
+	}
+
+	var task2 protocol.Task
+	if err := json.Unmarshal(data, &task2); err != nil {
+		t.Fatalf("unmarshal task: %v", err)
+	}
+
+	if task2.ID != "task_001" {
+		t.Errorf("ID: got %q, want %q", task2.ID, "task_001")
+	}
+	if task2.Contract.MaxCost != 0.50 {
+		t.Errorf("MaxCost: got %f, want 0.50", task2.Contract.MaxCost)
+	}
+}
+
+func TestGenerateID(t *testing.T) {
+	id1 := protocol.GenerateID("worker")
+	id2 := protocol.GenerateID("worker")
+	if id1 == id2 {
+		t.Error("GenerateID should return unique IDs")
+	}
+	if len(id1) < 10 {
+		t.Errorf("ID too short: %q", id1)
+	}
+}
