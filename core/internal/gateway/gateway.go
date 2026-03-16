@@ -80,6 +80,9 @@ func (g *Gateway) Handler() http.Handler {
 
 	var handler http.Handler = mux
 	handler = requestIDMiddleware(handler)
+	handler = bodySizeMiddleware(handler)
+	handler = authMiddleware(handler)
+	handler = securityHeadersMiddleware(handler)
 	handler = corsMiddleware(handler)
 
 	return handler

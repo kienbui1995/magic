@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/kienbm/magic-claw/core/internal/costctrl"
@@ -49,9 +51,35 @@ type failPayload struct {
 	} `json:"error"`
 }
 
+func validateEndpointURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("unsupported scheme: %s", u.Scheme)
+	}
+	host := u.Hostname()
+	ip := net.ParseIP(host)
+	if ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			// Allow loopback for dev, block other private ranges
+			if !ip.IsLoopback() {
+				return fmt.Errorf("endpoint URL points to private network")
+			}
+		}
+	}
+	return nil
+}
+
 // Dispatch sends a task.assign to the worker's endpoint and processes the response.
 // It runs synchronously — caller should use a goroutine if async is needed.
 func (d *Dispatcher) Dispatch(task *protocol.Task, worker *protocol.Worker) error {
+	if err := validateEndpointURL(worker.Endpoint.URL); err != nil {
+		d.handleFailure(task, worker, fmt.Sprintf("invalid endpoint: %v", err))
+		return err
+	}
+
 	// Build task.assign message
 	assignPayload, _ := json.Marshal(protocol.TaskAssignPayload{
 		TaskID:   task.ID,
