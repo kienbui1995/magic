@@ -1,7 +1,7 @@
 package router
 
 import (
-	"fmt"
+	"errors"
 	"sort"
 
 	"github.com/kienbui1995/magic/core/internal/events"
@@ -11,7 +11,7 @@ import (
 )
 
 // ErrNoWorkerAvailable is returned when no suitable worker is found for a task.
-var ErrNoWorkerAvailable = fmt.Errorf("no worker available for task")
+var ErrNoWorkerAvailable = errors.New("no worker available for task")
 
 // Router selects the best worker for a task based on routing strategy.
 type Router struct {

@@ -205,7 +205,7 @@ func DeepCopyWorker(w *Worker) *Worker {
 	return &cp
 }
 
-// DeepCopyTask returns a deep copy of a Task.
+// DeepCopyTask returns a deep copy of a Task, including all nested slices and pointers.
 func DeepCopyTask(t *Task) *Task {
 	cp := *t
 	if t.Input != nil {
@@ -216,15 +216,77 @@ func DeepCopyTask(t *Task) *Task {
 		cp.Output = make(json.RawMessage, len(t.Output))
 		copy(cp.Output, t.Output)
 	}
+	if t.Contract.QualityCriteria != nil {
+		cp.Contract.QualityCriteria = make([]QualityCriterion, len(t.Contract.QualityCriteria))
+		copy(cp.Contract.QualityCriteria, t.Contract.QualityCriteria)
+	}
+	if t.Contract.OutputSchema != nil {
+		cp.Contract.OutputSchema = make(json.RawMessage, len(t.Contract.OutputSchema))
+		copy(cp.Contract.OutputSchema, t.Contract.OutputSchema)
+	}
+	if t.Contract.RetryPolicy != nil {
+		rp := *t.Contract.RetryPolicy
+		cp.Contract.RetryPolicy = &rp
+	}
+	if t.Routing.RequiredCapabilities != nil {
+		cp.Routing.RequiredCapabilities = make([]string, len(t.Routing.RequiredCapabilities))
+		copy(cp.Routing.RequiredCapabilities, t.Routing.RequiredCapabilities)
+	}
+	if t.Routing.PreferredWorkers != nil {
+		cp.Routing.PreferredWorkers = make([]string, len(t.Routing.PreferredWorkers))
+		copy(cp.Routing.PreferredWorkers, t.Routing.PreferredWorkers)
+	}
+	if t.Routing.ExcludedWorkers != nil {
+		cp.Routing.ExcludedWorkers = make([]string, len(t.Routing.ExcludedWorkers))
+		copy(cp.Routing.ExcludedWorkers, t.Routing.ExcludedWorkers)
+	}
+	if t.Error != nil {
+		te := *t.Error
+		cp.Error = &te
+	}
+	if t.CompletedAt != nil {
+		ca := *t.CompletedAt
+		cp.CompletedAt = &ca
+	}
 	return &cp
 }
 
-// DeepCopyWorkflow returns a deep copy of a Workflow, including steps.
+// deepCopyStep returns a deep copy of a WorkflowStep.
+func deepCopyStep(s WorkflowStep) WorkflowStep {
+	if s.DependsOn != nil {
+		deps := make([]string, len(s.DependsOn))
+		copy(deps, s.DependsOn)
+		s.DependsOn = deps
+	}
+	if s.Input != nil {
+		in := make(json.RawMessage, len(s.Input))
+		copy(in, s.Input)
+		s.Input = in
+	}
+	if s.Output != nil {
+		out := make(json.RawMessage, len(s.Output))
+		copy(out, s.Output)
+		s.Output = out
+	}
+	if s.Error != nil {
+		te := *s.Error
+		s.Error = &te
+	}
+	return s
+}
+
+// DeepCopyWorkflow returns a deep copy of a Workflow, including all steps and their nested fields.
 func DeepCopyWorkflow(wf *Workflow) *Workflow {
 	cp := *wf
 	if wf.Steps != nil {
 		cp.Steps = make([]WorkflowStep, len(wf.Steps))
-		copy(cp.Steps, wf.Steps)
+		for i, s := range wf.Steps {
+			cp.Steps[i] = deepCopyStep(s)
+		}
+	}
+	if wf.DoneAt != nil {
+		d := *wf.DoneAt
+		cp.DoneAt = &d
 	}
 	return &cp
 }

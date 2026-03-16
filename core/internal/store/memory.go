@@ -93,6 +93,7 @@ func (s *MemoryStore) FindWorkersByCapability(capability string) []*protocol.Wor
 			}
 		}
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result
 }
 
@@ -280,6 +281,7 @@ func (s *MemoryStore) SearchKnowledge(query string) []*protocol.KnowledgeEntry {
 			result = append(result, protocol.DeepCopyKnowledge(k))
 		}
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result
 }
 

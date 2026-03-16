@@ -162,6 +162,43 @@ func TestGateway_SubmitTask(t *testing.T) {
 	}
 }
 
+func TestGateway_ListTasks(t *testing.T) {
+	gw := setupGateway()
+	srv := httptest.NewServer(gw.Handler())
+	defer srv.Close()
+
+	// Register a worker
+	regPayload := protocol.RegisterPayload{
+		Name:         "Bot",
+		Capabilities: []protocol.Capability{{Name: "greeting"}},
+		Endpoint:     protocol.Endpoint{Type: "http", URL: "http://localhost:9000"},
+		Limits:       protocol.WorkerLimits{MaxConcurrentTasks: 5},
+	}
+	body, _ := json.Marshal(regPayload)
+	http.Post(srv.URL+"/api/v1/workers/register", "application/json", bytes.NewReader(body))
+
+	// Submit a task
+	taskReq := map[string]any{
+		"type": "greeting", "input": map[string]string{"name": "Test"},
+		"routing": map[string]any{"strategy": "best_match", "required_capabilities": []string{"greeting"}},
+		"contract": map[string]any{"timeout_ms": 30000},
+	}
+	body, _ = json.Marshal(taskReq)
+	http.Post(srv.URL+"/api/v1/tasks", "application/json", bytes.NewReader(body))
+
+	// List tasks
+	resp, _ := http.Get(srv.URL + "/api/v1/tasks")
+	if resp.StatusCode != 200 {
+		t.Errorf("status: got %d, want 200", resp.StatusCode)
+	}
+
+	var tasks []*protocol.Task
+	json.NewDecoder(resp.Body).Decode(&tasks)
+	if len(tasks) != 1 {
+		t.Errorf("tasks count: got %d, want 1", len(tasks))
+	}
+}
+
 func TestGateway_SubmitWorkflow(t *testing.T) {
 	gw := setupGateway()
 	srv := httptest.NewServer(gw.Handler())
