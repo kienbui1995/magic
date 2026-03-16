@@ -159,3 +159,28 @@ func TestWorkflowSerialization(t *testing.T) {
 		t.Errorf("DependsOn: got %v", wf2.Steps[1].DependsOn)
 	}
 }
+
+func TestKnowledgeEntrySerialization(t *testing.T) {
+	entry := protocol.KnowledgeEntry{
+		ID:      "kb_001",
+		Title:   "API Guidelines",
+		Content: "Always use REST conventions",
+		Tags:    []string{"api", "guidelines"},
+		Scope:   "org",
+		ScopeID: "org_magic",
+	}
+	data, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var entry2 protocol.KnowledgeEntry
+	if err := json.Unmarshal(data, &entry2); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if entry2.Title != "API Guidelines" {
+		t.Errorf("Title: got %q", entry2.Title)
+	}
+	if len(entry2.Tags) != 2 {
+		t.Errorf("Tags: got %d", len(entry2.Tags))
+	}
+}

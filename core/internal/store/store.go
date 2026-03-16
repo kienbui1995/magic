@@ -33,4 +33,12 @@ type Store interface {
 	UpdateTeam(t *protocol.Team) error
 	RemoveTeam(id string) error
 	ListTeams() []*protocol.Team
+
+	// Knowledge
+	AddKnowledge(k *protocol.KnowledgeEntry) error
+	GetKnowledge(id string) (*protocol.KnowledgeEntry, error)
+	UpdateKnowledge(k *protocol.KnowledgeEntry) error
+	DeleteKnowledge(id string) error
+	ListKnowledge() []*protocol.KnowledgeEntry
+	SearchKnowledge(query string) []*protocol.KnowledgeEntry
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/kienbm/magic-claw/core/internal/costctrl"
 	"github.com/kienbm/magic-claw/core/internal/evaluator"
 	"github.com/kienbm/magic-claw/core/internal/events"
+	"github.com/kienbm/magic-claw/core/internal/knowledge"
 	"github.com/kienbm/magic-claw/core/internal/monitor"
 	"github.com/kienbm/magic-claw/core/internal/orchestrator"
 	"github.com/kienbm/magic-claw/core/internal/orgmgr"
@@ -24,9 +25,10 @@ type Gateway struct {
 	evaluator    *evaluator.Evaluator
 	orchestrator *orchestrator.Orchestrator
 	orgMgr       *orgmgr.Manager
+	knowledge    *knowledge.Hub
 }
 
-func New(reg *registry.Registry, rt *router.Router, s store.Store, bus *events.Bus, mon *monitor.Monitor, cc *costctrl.Controller, ev *evaluator.Evaluator, orch *orchestrator.Orchestrator, mgr *orgmgr.Manager) *Gateway {
+func New(reg *registry.Registry, rt *router.Router, s store.Store, bus *events.Bus, mon *monitor.Monitor, cc *costctrl.Controller, ev *evaluator.Evaluator, orch *orchestrator.Orchestrator, mgr *orgmgr.Manager, kb *knowledge.Hub) *Gateway {
 	return &Gateway{
 		registry:     reg,
 		router:       rt,
@@ -37,6 +39,7 @@ func New(reg *registry.Registry, rt *router.Router, s store.Store, bus *events.B
 		evaluator:    ev,
 		orchestrator: orch,
 		orgMgr:       mgr,
+		knowledge:    kb,
 	}
 }
 
@@ -67,6 +70,10 @@ func (g *Gateway) Handler() http.Handler {
 
 	// Metrics
 	mux.HandleFunc("GET /api/v1/metrics", g.handleGetStats)
+
+	// Knowledge
+	mux.HandleFunc("POST /api/v1/knowledge", g.handleAddKnowledge)
+	mux.HandleFunc("GET /api/v1/knowledge", g.handleSearchKnowledge)
 
 	var handler http.Handler = mux
 	handler = requestIDMiddleware(handler)

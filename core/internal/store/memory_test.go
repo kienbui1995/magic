@@ -140,3 +140,62 @@ func TestMemoryStore_Teams(t *testing.T) {
 		t.Error("should fail after remove")
 	}
 }
+
+func TestMemoryStore_Knowledge(t *testing.T) {
+	s := store.NewMemoryStore()
+
+	entry := &protocol.KnowledgeEntry{
+		ID:      "kb_001",
+		Title:   "API Guidelines",
+		Content: "Use REST conventions for all endpoints",
+		Tags:    []string{"api", "rest"},
+		Scope:   "org",
+		ScopeID: "org_magic",
+	}
+
+	if err := s.AddKnowledge(entry); err != nil {
+		t.Fatalf("AddKnowledge: %v", err)
+	}
+
+	got, err := s.GetKnowledge("kb_001")
+	if err != nil {
+		t.Fatalf("GetKnowledge: %v", err)
+	}
+	if got.Title != "API Guidelines" {
+		t.Errorf("Title: got %q", got.Title)
+	}
+
+	entry.Content = "Updated content"
+	if err := s.UpdateKnowledge(entry); err != nil {
+		t.Fatalf("UpdateKnowledge: %v", err)
+	}
+
+	if len(s.ListKnowledge()) != 1 {
+		t.Errorf("ListKnowledge: got %d", len(s.ListKnowledge()))
+	}
+
+	// Search by title substring
+	results := s.SearchKnowledge("API")
+	if len(results) != 1 {
+		t.Errorf("SearchKnowledge 'API': got %d, want 1", len(results))
+	}
+
+	// Search by tag
+	results = s.SearchKnowledge("rest")
+	if len(results) != 1 {
+		t.Errorf("SearchKnowledge 'rest': got %d, want 1", len(results))
+	}
+
+	// Search no match
+	results = s.SearchKnowledge("nonexistent")
+	if len(results) != 0 {
+		t.Errorf("SearchKnowledge 'nonexistent': got %d, want 0", len(results))
+	}
+
+	if err := s.DeleteKnowledge("kb_001"); err != nil {
+		t.Fatalf("DeleteKnowledge: %v", err)
+	}
+	if _, err := s.GetKnowledge("kb_001"); err == nil {
+		t.Error("should fail after delete")
+	}
+}

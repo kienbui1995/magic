@@ -186,3 +186,15 @@ type Workflow struct {
 	CreatedAt time.Time      `json:"created_at"`
 	DoneAt    *time.Time     `json:"done_at,omitempty"`
 }
+
+type KnowledgeEntry struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Content   string    `json:"content"`
+	Tags      []string  `json:"tags,omitempty"`
+	Scope     string    `json:"scope"`     // org | team | worker
+	ScopeID   string    `json:"scope_id"`
+	CreatedBy string    `json:"created_by,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}

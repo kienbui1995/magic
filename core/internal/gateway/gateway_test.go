@@ -12,6 +12,7 @@ import (
 	"github.com/kienbm/magic-claw/core/internal/evaluator"
 	"github.com/kienbm/magic-claw/core/internal/events"
 	"github.com/kienbm/magic-claw/core/internal/gateway"
+	"github.com/kienbm/magic-claw/core/internal/knowledge"
 	"github.com/kienbm/magic-claw/core/internal/monitor"
 	"github.com/kienbm/magic-claw/core/internal/orchestrator"
 	"github.com/kienbm/magic-claw/core/internal/orgmgr"
@@ -32,7 +33,8 @@ func setupGateway() *gateway.Gateway {
 	ev := evaluator.New(bus)
 	orch := orchestrator.New(s, rt, bus)
 	mgr := orgmgr.New(s, bus)
-	return gateway.New(reg, rt, s, bus, mon, cc, ev, orch, mgr)
+	kb := knowledge.New(s, bus)
+	return gateway.New(reg, rt, s, bus, mon, cc, ev, orch, mgr, kb)
 }
 
 func TestGateway_Health(t *testing.T) {
@@ -243,5 +245,57 @@ func TestGateway_CostReport(t *testing.T) {
 	json.NewDecoder(resp.Body).Decode(&report)
 	if _, ok := report["total_cost"]; !ok {
 		t.Error("should have total_cost field")
+	}
+}
+
+func TestGateway_AddKnowledge(t *testing.T) {
+	gw := setupGateway()
+	srv := httptest.NewServer(gw.Handler())
+	defer srv.Close()
+
+	body, _ := json.Marshal(map[string]any{
+		"title":   "API Guide",
+		"content": "Use REST",
+		"tags":    []string{"api"},
+		"scope":   "org",
+		"scope_id": "org_magic",
+	})
+	resp, err := http.Post(srv.URL+"/api/v1/knowledge", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 201 {
+		t.Errorf("status: got %d, want 201", resp.StatusCode)
+	}
+
+	var entry protocol.KnowledgeEntry
+	json.NewDecoder(resp.Body).Decode(&entry)
+	if entry.Title != "API Guide" {
+		t.Errorf("Title: got %q", entry.Title)
+	}
+}
+
+func TestGateway_SearchKnowledge(t *testing.T) {
+	gw := setupGateway()
+	srv := httptest.NewServer(gw.Handler())
+	defer srv.Close()
+
+	// Add an entry first
+	body, _ := json.Marshal(map[string]any{
+		"title": "REST Guide", "content": "Use REST", "tags": []string{"api"},
+		"scope": "org", "scope_id": "org_magic",
+	})
+	http.Post(srv.URL+"/api/v1/knowledge", "application/json", bytes.NewReader(body))
+
+	// Search
+	resp, _ := http.Get(srv.URL + "/api/v1/knowledge?q=REST")
+	if resp.StatusCode != 200 {
+		t.Errorf("status: got %d", resp.StatusCode)
+	}
+
+	var entries []*protocol.KnowledgeEntry
+	json.NewDecoder(resp.Body).Decode(&entries)
+	if len(entries) != 1 {
+		t.Errorf("search results: got %d, want 1", len(entries))
 	}
 }

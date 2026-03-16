@@ -9,6 +9,7 @@ import (
 	"github.com/kienbm/magic-claw/core/internal/evaluator"
 	"github.com/kienbm/magic-claw/core/internal/events"
 	"github.com/kienbm/magic-claw/core/internal/gateway"
+	"github.com/kienbm/magic-claw/core/internal/knowledge"
 	"github.com/kienbm/magic-claw/core/internal/monitor"
 	"github.com/kienbm/magic-claw/core/internal/orchestrator"
 	"github.com/kienbm/magic-claw/core/internal/orgmgr"
@@ -54,8 +55,9 @@ func runServer() {
 	ev := evaluator.New(bus)
 	orch := orchestrator.New(s, rt, bus)
 	mgr := orgmgr.New(s, bus)
+	kb := knowledge.New(s, bus)
 
-	gw := gateway.New(reg, rt, s, bus, mon, cc, ev, orch, mgr)
+	gw := gateway.New(reg, rt, s, bus, mon, cc, ev, orch, mgr, kb)
 
 	fmt.Printf("MagiC server starting on :%s\n", port)
 	fmt.Println("  POST /api/v1/workers/register  — Register a worker")
@@ -66,6 +68,8 @@ func runServer() {
 	fmt.Println("  POST /api/v1/teams             — Create a team")
 	fmt.Println("  GET  /api/v1/teams             — List teams")
 	fmt.Println("  GET  /api/v1/costs             — Cost report")
+	fmt.Println("  POST /api/v1/knowledge         — Add knowledge entry")
+	fmt.Println("  GET  /api/v1/knowledge         — Search/list knowledge")
 	fmt.Println("  GET  /api/v1/metrics           — View stats")
 	fmt.Println("  GET  /health                   — Health check")
 

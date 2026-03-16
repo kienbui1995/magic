@@ -154,3 +154,42 @@ func (g *Gateway) handleCostReport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(report)
 }
+
+type AddKnowledgeRequest struct {
+	Title     string   `json:"title"`
+	Content   string   `json:"content"`
+	Tags      []string `json:"tags"`
+	Scope     string   `json:"scope"`
+	ScopeID   string   `json:"scope_id"`
+	CreatedBy string   `json:"created_by"`
+}
+
+func (g *Gateway) handleAddKnowledge(w http.ResponseWriter, r *http.Request) {
+	var req AddKnowledgeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error": "invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+
+	entry, err := g.knowledge.Add(req.Title, req.Content, req.Tags, req.Scope, req.ScopeID, req.CreatedBy)
+	if err != nil {
+		http.Error(w, `{"error": "`+err.Error()+`"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(entry)
+}
+
+func (g *Gateway) handleSearchKnowledge(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("q")
+	var entries []*protocol.KnowledgeEntry
+	if query != "" {
+		entries = g.knowledge.Search(query)
+	} else {
+		entries = g.knowledge.List()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(entries)
+}

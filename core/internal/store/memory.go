@@ -12,6 +12,7 @@ type MemoryStore struct {
 	tasks     map[string]*protocol.Task
 	workflows map[string]*protocol.Workflow
 	teams     map[string]*protocol.Team
+	knowledge map[string]*protocol.KnowledgeEntry
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -20,6 +21,7 @@ func NewMemoryStore() *MemoryStore {
 		tasks:     make(map[string]*protocol.Task),
 		workflows: make(map[string]*protocol.Workflow),
 		teams:     make(map[string]*protocol.Team),
+		knowledge: make(map[string]*protocol.KnowledgeEntry),
 	}
 }
 
@@ -207,4 +209,106 @@ func (s *MemoryStore) ListTeams() []*protocol.Team {
 		result = append(result, t)
 	}
 	return result
+}
+
+func (s *MemoryStore) AddKnowledge(k *protocol.KnowledgeEntry) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.knowledge[k.ID] = k
+	return nil
+}
+
+func (s *MemoryStore) GetKnowledge(id string) (*protocol.KnowledgeEntry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	k, ok := s.knowledge[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return k, nil
+}
+
+func (s *MemoryStore) UpdateKnowledge(k *protocol.KnowledgeEntry) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.knowledge[k.ID]; !ok {
+		return ErrNotFound
+	}
+	s.knowledge[k.ID] = k
+	return nil
+}
+
+func (s *MemoryStore) DeleteKnowledge(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.knowledge[id]; !ok {
+		return ErrNotFound
+	}
+	delete(s.knowledge, id)
+	return nil
+}
+
+func (s *MemoryStore) ListKnowledge() []*protocol.KnowledgeEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]*protocol.KnowledgeEntry, 0, len(s.knowledge))
+	for _, k := range s.knowledge {
+		result = append(result, k)
+	}
+	return result
+}
+
+func (s *MemoryStore) SearchKnowledge(query string) []*protocol.KnowledgeEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var result []*protocol.KnowledgeEntry
+	queryLower := toLower(query)
+	for _, k := range s.knowledge {
+		// Check if query matches title, content, or any tag
+		if contains(toLower(k.Title), queryLower) ||
+			contains(toLower(k.Content), queryLower) ||
+			containsTag(k.Tags, queryLower) {
+			result = append(result, k)
+		}
+	}
+	return result
+}
+
+func toLower(s string) string {
+	// Simple lowercase conversion for ASCII
+	result := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			result[i] = c + 32
+		} else {
+			result[i] = c
+		}
+	}
+	return string(result)
+}
+
+func contains(s, substr string) bool {
+	// Simple substring check
+	if len(substr) == 0 {
+		return true
+	}
+	if len(s) < len(substr) {
+		return false
+	}
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+func containsTag(tags []string, query string) bool {
+	for _, tag := range tags {
+		if toLower(tag) == query {
+			return true
+		}
+	}
+	return false
 }
