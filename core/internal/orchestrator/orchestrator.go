@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/kienbm/magic-claw/core/internal/dispatcher"
 	"github.com/kienbm/magic-claw/core/internal/events"
 	"github.com/kienbm/magic-claw/core/internal/protocol"
 	"github.com/kienbm/magic-claw/core/internal/router"
@@ -12,13 +13,14 @@ import (
 )
 
 type Orchestrator struct {
-	store  store.Store
-	router *router.Router
-	bus    *events.Bus
+	store      store.Store
+	router     *router.Router
+	bus        *events.Bus
+	dispatcher *dispatcher.Dispatcher
 }
 
-func New(s store.Store, rt *router.Router, bus *events.Bus) *Orchestrator {
-	return &Orchestrator{store: s, router: rt, bus: bus}
+func New(s store.Store, rt *router.Router, bus *events.Bus, disp *dispatcher.Dispatcher) *Orchestrator {
+	return &Orchestrator{store: s, router: rt, bus: bus, dispatcher: disp}
 }
 
 func (o *Orchestrator) Submit(name string, steps []protocol.WorkflowStep, ctx protocol.TaskContext) (*protocol.Workflow, error) {
@@ -180,10 +182,25 @@ func (o *Orchestrator) dispatchStep(wf *protocol.Workflow, step *protocol.Workfl
 		return
 	}
 
-	_ = worker
 	o.store.AddTask(task)
 	step.Status = protocol.StepRunning
 	step.TaskID = task.ID
+
+	// Dispatch to worker asynchronously
+	if o.dispatcher != nil {
+		go func() {
+			err := o.dispatcher.Dispatch(task, worker)
+			if err != nil {
+				o.FailStep(wf.ID, task.ID, protocol.TaskError{Code: "dispatch_error", Message: err.Error()})
+			} else {
+				// Task completed successfully, advance workflow
+				got, _ := o.store.GetTask(task.ID)
+				if got != nil && got.Status == protocol.TaskCompleted {
+					o.CompleteStep(wf.ID, task.ID, got.Output)
+				}
+			}
+		}()
+	}
 }
 
 func (o *Orchestrator) GetWorkflow(id string) (*protocol.Workflow, error) {

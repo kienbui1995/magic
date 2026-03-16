@@ -30,7 +30,7 @@ func setupOrchestrator(t *testing.T) (*orchestrator.Orchestrator, store.Store) {
 		Limits:   protocol.WorkerLimits{MaxConcurrentTasks: 10},
 	})
 
-	orch := orchestrator.New(s, rt, bus)
+	orch := orchestrator.New(s, rt, bus, nil) // nil dispatcher for unit tests
 	return orch, s
 }
 

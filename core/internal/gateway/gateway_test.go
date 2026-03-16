@@ -32,10 +32,10 @@ func setupGateway() *gateway.Gateway {
 	mon.Start()
 	cc := costctrl.New(s, bus)
 	ev := evaluator.New(bus)
-	orch := orchestrator.New(s, rt, bus)
+	disp := dispatcher.New(s, bus, cc)
+	orch := orchestrator.New(s, rt, bus, disp)
 	mgr := orgmgr.New(s, bus)
 	kb := knowledge.New(s, bus)
-	disp := dispatcher.New(s, bus, cc)
 	return gateway.New(reg, rt, s, bus, mon, cc, ev, orch, mgr, kb, disp)
 }
 

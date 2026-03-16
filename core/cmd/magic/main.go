@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/kienbm/magic-claw/core/internal/costctrl"
+	"github.com/kienbm/magic-claw/core/internal/dispatcher"
 	"github.com/kienbm/magic-claw/core/internal/evaluator"
 	"github.com/kienbm/magic-claw/core/internal/events"
 	"github.com/kienbm/magic-claw/core/internal/gateway"
@@ -53,11 +54,12 @@ func runServer() {
 	// Tier 2
 	cc := costctrl.New(s, bus)
 	ev := evaluator.New(bus)
-	orch := orchestrator.New(s, rt, bus)
+	disp := dispatcher.New(s, bus, cc)
+	orch := orchestrator.New(s, rt, bus, disp)
 	mgr := orgmgr.New(s, bus)
 	kb := knowledge.New(s, bus)
 
-	gw := gateway.New(reg, rt, s, bus, mon, cc, ev, orch, mgr, kb)
+	gw := gateway.New(reg, rt, s, bus, mon, cc, ev, orch, mgr, kb, disp)
 
 	fmt.Printf("MagiC server starting on :%s\n", port)
 	fmt.Println("  POST /api/v1/workers/register  — Register a worker")
