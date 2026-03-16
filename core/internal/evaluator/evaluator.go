@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/kienbm/magic-claw/core/internal/events"
-	"github.com/kienbm/magic-claw/core/internal/protocol"
+	"github.com/kienbui1995/magic/core/internal/events"
+	"github.com/kienbui1995/magic/core/internal/protocol"
 )
 
 type Result struct {

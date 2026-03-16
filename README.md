@@ -18,8 +18,8 @@ ContentBot  SEOBot  LeadBot  CodeBot
 **1. Start the MagiC server**
 
 ```bash
-git clone https://github.com/kienbm/magic-claw.git
-cd magic-claw/core
+git clone https://github.com/kienbui1995/magic.git
+cd magic/core
 go build -o ../bin/magic ./cmd/magic
 ../bin/magic serve
 ```
@@ -27,7 +27,7 @@ go build -o ../bin/magic ./cmd/magic
 **2. Create a worker in Python (10 lines)**
 
 ```bash
-pip install magic-claw
+pip install magic
 ```
 
 ```python
@@ -198,7 +198,7 @@ Failure handling per step: `retry`, `skip`, `abort`, `reassign`.
 ## Project Structure
 
 ```
-magic-claw/
+magic/
 ├── core/                           # Go server (9 modules)
 │   ├── cmd/magic/main.go           # CLI entrypoint
 │   └── internal/
@@ -215,7 +215,7 @@ magic-claw/
 │       ├── costctrl/               # Budget tracking
 │       ├── orgmgr/                 # Team management
 │       └── knowledge/              # Knowledge hub
-├── sdk/python/                     # Python SDK (pip install magic-claw)
+├── sdk/python/                     # Python SDK (pip install magic)
 │   ├── magic_claw/
 │   │   ├── worker.py               # Worker class
 │   │   ├── client.py               # HTTP client
@@ -263,7 +263,7 @@ python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 - [x] Differentiators — Orchestrator, Evaluator, Cost Controller, Org Manager
 - [x] Knowledge Hub — Shared knowledge base
 - [x] HTTP Dispatch — Actual task execution via worker endpoints
-- [ ] Docker — `docker run magic-claw`
+- [ ] Docker — `docker run magic`
 - [ ] Go SDK — Native Go workers
 - [ ] Persistent storage — SQLite/PostgreSQL
 - [ ] WebSocket — Real-time worker communication

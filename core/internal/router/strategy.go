@@ -1,7 +1,7 @@
 package router
 
 import (
-	"github.com/kienbm/magic-claw/core/internal/protocol"
+	"github.com/kienbui1995/magic/core/internal/protocol"
 )
 
 type WorkerScore struct {

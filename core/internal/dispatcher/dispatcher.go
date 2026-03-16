@@ -9,10 +9,10 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/kienbm/magic-claw/core/internal/costctrl"
-	"github.com/kienbm/magic-claw/core/internal/events"
-	"github.com/kienbm/magic-claw/core/internal/protocol"
-	"github.com/kienbm/magic-claw/core/internal/store"
+	"github.com/kienbui1995/magic/core/internal/costctrl"
+	"github.com/kienbui1995/magic/core/internal/events"
+	"github.com/kienbui1995/magic/core/internal/protocol"
+	"github.com/kienbui1995/magic/core/internal/store"
 )
 
 type Dispatcher struct {

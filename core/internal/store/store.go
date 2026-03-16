@@ -3,7 +3,7 @@ package store
 import (
 	"fmt"
 
-	"github.com/kienbm/magic-claw/core/internal/protocol"
+	"github.com/kienbui1995/magic/core/internal/protocol"
 )
 
 var ErrNotFound = fmt.Errorf("not found")

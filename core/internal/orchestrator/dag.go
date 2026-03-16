@@ -3,7 +3,7 @@ package orchestrator
 import (
 	"fmt"
 
-	"github.com/kienbm/magic-claw/core/internal/protocol"
+	"github.com/kienbui1995/magic/core/internal/protocol"
 )
 
 func FindReadySteps(steps []protocol.WorkflowStep) []string {

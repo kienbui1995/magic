@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kienbm/magic-claw/core/internal/dispatcher"
-	"github.com/kienbm/magic-claw/core/internal/events"
-	"github.com/kienbm/magic-claw/core/internal/protocol"
-	"github.com/kienbm/magic-claw/core/internal/router"
-	"github.com/kienbm/magic-claw/core/internal/store"
+	"github.com/kienbui1995/magic/core/internal/dispatcher"
+	"github.com/kienbui1995/magic/core/internal/events"
+	"github.com/kienbui1995/magic/core/internal/protocol"
+	"github.com/kienbui1995/magic/core/internal/router"
+	"github.com/kienbui1995/magic/core/internal/store"
 )
 
 type Orchestrator struct {

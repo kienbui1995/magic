@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/kienbm/magic-claw/core/internal/protocol"
+	"github.com/kienbui1995/magic/core/internal/protocol"
 )
 
 const maxBodySize = 1 << 20 // 1 MB

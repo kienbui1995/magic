@@ -3,8 +3,8 @@ package registry
 import (
 	"time"
 
-	"github.com/kienbm/magic-claw/core/internal/events"
-	"github.com/kienbm/magic-claw/core/internal/protocol"
+	"github.com/kienbui1995/magic/core/internal/events"
+	"github.com/kienbui1995/magic/core/internal/protocol"
 )
 
 const HeartbeatTimeout = 60 * time.Second

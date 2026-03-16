@@ -4,7 +4,7 @@ import (
 	"io"
 	"sync/atomic"
 
-	"github.com/kienbm/magic-claw/core/internal/events"
+	"github.com/kienbui1995/magic/core/internal/events"
 )
 
 type Stats struct {

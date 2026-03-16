@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **MagiC** (capital C = Company / Crew / Claw) is an open-source framework for managing fleets of AI workers. Think "Kubernetes for AI agents" — it doesn't build agents, it manages any agents built with any tool (CrewAI, LangChain, custom bots, etc.) through an open protocol.
 
 - **Core:** Go (9 modules)
-- **SDK:** Python (`pip install magic-claw`) + Go SDK
+- **SDK:** Python (`pip install magic`) + Go SDK
 - **Protocol:** MagiC Protocol (MCP²) — transport-agnostic JSON messages over HTTP/WebSocket/gRPC
 - **License:** Apache 2.0
 
@@ -23,7 +23,7 @@ The project is in **pre-implementation phase**. Design spec and implementation p
 ### Planned Project Structure
 
 ```
-magic-claw/
+magic/
 ├── core/                    # Go — MagiC framework server
 │   ├── cmd/magic/           # CLI entrypoint (magic serve, magic worker list)
 │   └── internal/

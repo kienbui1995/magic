@@ -3,9 +3,9 @@ package knowledge_test
 import (
 	"testing"
 
-	"github.com/kienbm/magic-claw/core/internal/events"
-	"github.com/kienbm/magic-claw/core/internal/knowledge"
-	"github.com/kienbm/magic-claw/core/internal/store"
+	"github.com/kienbui1995/magic/core/internal/events"
+	"github.com/kienbui1995/magic/core/internal/knowledge"
+	"github.com/kienbui1995/magic/core/internal/store"
 )
 
 func TestHub_Add(t *testing.T) {

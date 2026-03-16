@@ -3,8 +3,8 @@ package orchestrator_test
 import (
 	"testing"
 
-	"github.com/kienbm/magic-claw/core/internal/orchestrator"
-	"github.com/kienbm/magic-claw/core/internal/protocol"
+	"github.com/kienbui1995/magic/core/internal/orchestrator"
+	"github.com/kienbui1995/magic/core/internal/protocol"
 )
 
 func TestDAG_FindReady_NoDeps(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kienbm/magic-claw/core/internal/events"
+	"github.com/kienbui1995/magic/core/internal/events"
 )
 
 func TestEventBus_PubSub(t *testing.T) {

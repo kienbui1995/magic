@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/kienbm/magic-claw/core/internal/protocol"
+	"github.com/kienbui1995/magic/core/internal/protocol"
 )
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

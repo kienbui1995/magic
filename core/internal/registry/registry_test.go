@@ -3,10 +3,10 @@ package registry_test
 import (
 	"testing"
 
-	"github.com/kienbm/magic-claw/core/internal/events"
-	"github.com/kienbm/magic-claw/core/internal/protocol"
-	"github.com/kienbm/magic-claw/core/internal/registry"
-	"github.com/kienbm/magic-claw/core/internal/store"
+	"github.com/kienbui1995/magic/core/internal/events"
+	"github.com/kienbui1995/magic/core/internal/protocol"
+	"github.com/kienbui1995/magic/core/internal/registry"
+	"github.com/kienbui1995/magic/core/internal/store"
 )
 
 func TestRegistry_Register(t *testing.T) {

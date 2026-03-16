@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kienbm/magic-claw/core/internal/protocol"
+	"github.com/kienbui1995/magic/core/internal/protocol"
 )
 
 func TestWorkerSerialization(t *testing.T) {

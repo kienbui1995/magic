@@ -3,8 +3,8 @@ package store_test
 import (
 	"testing"
 
-	"github.com/kienbm/magic-claw/core/internal/protocol"
-	"github.com/kienbm/magic-claw/core/internal/store"
+	"github.com/kienbui1995/magic/core/internal/protocol"
+	"github.com/kienbui1995/magic/core/internal/store"
 )
 
 func TestMemoryStore_Workers(t *testing.T) {

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kienbm/magic-claw/core/internal/events"
-	"github.com/kienbm/magic-claw/core/internal/monitor"
+	"github.com/kienbui1995/magic/core/internal/events"
+	"github.com/kienbui1995/magic/core/internal/monitor"
 )
 
 func TestMonitor_CapturesEvents(t *testing.T) {

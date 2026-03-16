@@ -3,7 +3,7 @@ package store
 import (
 	"sync"
 
-	"github.com/kienbm/magic-claw/core/internal/protocol"
+	"github.com/kienbui1995/magic/core/internal/protocol"
 )
 
 type MemoryStore struct {

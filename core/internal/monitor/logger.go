@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/kienbm/magic-claw/core/internal/events"
+	"github.com/kienbui1995/magic/core/internal/events"
 )
 
 type LogEntry struct {
