@@ -5,9 +5,13 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/kienbm/magic-claw/core/internal/costctrl"
+	"github.com/kienbm/magic-claw/core/internal/evaluator"
 	"github.com/kienbm/magic-claw/core/internal/events"
 	"github.com/kienbm/magic-claw/core/internal/gateway"
 	"github.com/kienbm/magic-claw/core/internal/monitor"
+	"github.com/kienbm/magic-claw/core/internal/orchestrator"
+	"github.com/kienbm/magic-claw/core/internal/orgmgr"
 	"github.com/kienbm/magic-claw/core/internal/registry"
 	"github.com/kienbm/magic-claw/core/internal/router"
 	"github.com/kienbm/magic-claw/core/internal/store"
@@ -36,6 +40,7 @@ func runServer() {
 		port = "8080"
 	}
 
+	// Core
 	s := store.NewMemoryStore()
 	bus := events.NewBus()
 	reg := registry.New(s, bus)
@@ -44,12 +49,23 @@ func runServer() {
 	mon.Start()
 	reg.StartHealthCheck(30_000_000_000) // 30s
 
-	gw := gateway.New(reg, rt, s, bus, mon)
+	// Tier 2
+	cc := costctrl.New(s, bus)
+	ev := evaluator.New(bus)
+	orch := orchestrator.New(s, rt, bus)
+	mgr := orgmgr.New(s, bus)
+
+	gw := gateway.New(reg, rt, s, bus, mon, cc, ev, orch, mgr)
 
 	fmt.Printf("MagiC server starting on :%s\n", port)
 	fmt.Println("  POST /api/v1/workers/register  — Register a worker")
 	fmt.Println("  GET  /api/v1/workers           — List workers")
 	fmt.Println("  POST /api/v1/tasks             — Submit a task")
+	fmt.Println("  POST /api/v1/workflows         — Submit a workflow")
+	fmt.Println("  GET  /api/v1/workflows         — List workflows")
+	fmt.Println("  POST /api/v1/teams             — Create a team")
+	fmt.Println("  GET  /api/v1/teams             — List teams")
+	fmt.Println("  GET  /api/v1/costs             — Cost report")
 	fmt.Println("  GET  /api/v1/metrics           — View stats")
 	fmt.Println("  GET  /health                   — Health check")
 
