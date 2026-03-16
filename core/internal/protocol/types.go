@@ -145,3 +145,44 @@ type Team struct {
 	DailyBudget      float64  `json:"daily_budget"`
 	ApprovalRequired bool     `json:"approval_required"`
 }
+
+// Workflow statuses
+const (
+	WorkflowPending   = "pending"
+	WorkflowRunning   = "running"
+	WorkflowCompleted = "completed"
+	WorkflowFailed    = "failed"
+	WorkflowAborted   = "aborted"
+)
+
+// Step statuses
+const (
+	StepPending   = "pending"
+	StepRunning   = "running"
+	StepCompleted = "completed"
+	StepFailed    = "failed"
+	StepSkipped   = "skipped"
+	StepBlocked   = "blocked"
+)
+
+type WorkflowStep struct {
+	ID        string          `json:"id"`
+	TaskType  string          `json:"task_type"`
+	Input     json.RawMessage `json:"input,omitempty"`
+	DependsOn []string        `json:"depends_on,omitempty"`
+	OnFailure string          `json:"on_failure,omitempty"`
+	Status    string          `json:"status,omitempty"`
+	TaskID    string          `json:"task_id,omitempty"`
+	Output    json.RawMessage `json:"output,omitempty"`
+	Error     *TaskError      `json:"error,omitempty"`
+}
+
+type Workflow struct {
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Steps     []WorkflowStep `json:"steps"`
+	Status    string         `json:"status"`
+	Context   TaskContext    `json:"context"`
+	CreatedAt time.Time      `json:"created_at"`
+	DoneAt    *time.Time     `json:"done_at,omitempty"`
+}

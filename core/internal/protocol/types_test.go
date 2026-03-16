@@ -130,3 +130,32 @@ func TestNewMessage(t *testing.T) {
 		t.Error("Timestamp should not be zero")
 	}
 }
+
+func TestWorkflowSerialization(t *testing.T) {
+	wf := protocol.Workflow{
+		ID:   "wf_001",
+		Name: "Product Launch",
+		Steps: []protocol.WorkflowStep{
+			{ID: "research", TaskType: "market_research", Input: json.RawMessage(`{"topic": "AI"}`)},
+			{ID: "content", TaskType: "content_writing", DependsOn: []string{"research"}, OnFailure: "retry"},
+		},
+		Status: protocol.WorkflowPending,
+	}
+	data, err := json.Marshal(wf)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var wf2 protocol.Workflow
+	if err := json.Unmarshal(data, &wf2); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if wf2.Name != "Product Launch" {
+		t.Errorf("Name: got %q", wf2.Name)
+	}
+	if len(wf2.Steps) != 2 {
+		t.Fatalf("Steps: got %d", len(wf2.Steps))
+	}
+	if wf2.Steps[1].DependsOn[0] != "research" {
+		t.Errorf("DependsOn: got %v", wf2.Steps[1].DependsOn)
+	}
+}
