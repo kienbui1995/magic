@@ -10,24 +10,29 @@ import (
 	"time"
 
 	"github.com/kienbui1995/magic/core/internal/costctrl"
+	"github.com/kienbui1995/magic/core/internal/evaluator"
 	"github.com/kienbui1995/magic/core/internal/events"
 	"github.com/kienbui1995/magic/core/internal/protocol"
 	"github.com/kienbui1995/magic/core/internal/store"
 )
 
+const maxRetries = 2
+
 type Dispatcher struct {
-	store    store.Store
-	bus      *events.Bus
-	costCtrl *costctrl.Controller
-	client   *http.Client
+	store     store.Store
+	bus       *events.Bus
+	costCtrl  *costctrl.Controller
+	evaluator *evaluator.Evaluator
+	client    *http.Client
 }
 
-func New(s store.Store, bus *events.Bus, cc *costctrl.Controller) *Dispatcher {
+func New(s store.Store, bus *events.Bus, cc *costctrl.Controller, ev *evaluator.Evaluator) *Dispatcher {
 	return &Dispatcher{
-		store:    s,
-		bus:      bus,
-		costCtrl: cc,
-		client:   &http.Client{Timeout: 60 * time.Second},
+		store:     s,
+		bus:       bus,
+		costCtrl:  cc,
+		evaluator: ev,
+		client:    &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
@@ -96,7 +101,6 @@ func (d *Dispatcher) Dispatch(task *protocol.Task, worker *protocol.Worker) erro
 		return fmt.Errorf("marshal task.assign: %w", err)
 	}
 
-	// Update task status
 	task.Status = protocol.TaskInProgress
 	d.store.UpdateTask(task)
 
@@ -110,23 +114,37 @@ func (d *Dispatcher) Dispatch(task *protocol.Task, worker *protocol.Worker) erro
 		},
 	})
 
-	// POST to worker endpoint
+	// Retry loop
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt) * time.Second) // linear backoff
+		}
+
+		lastErr = d.tryDispatch(body, task, worker)
+		if lastErr == nil {
+			return nil
+		}
+	}
+
+	// All retries failed
+	d.handleFailure(task, worker, fmt.Sprintf("failed after %d retries: %v", maxRetries+1, lastErr))
+	return lastErr
+}
+
+func (d *Dispatcher) tryDispatch(body []byte, task *protocol.Task, worker *protocol.Worker) error {
 	resp, err := d.client.Post(worker.Endpoint.URL, "application/json", bytes.NewReader(body))
 	if err != nil {
-		d.handleFailure(task, worker, fmt.Sprintf("connection failed: %v", err))
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		d.handleFailure(task, worker, fmt.Sprintf("worker returned status %d", resp.StatusCode))
 		return fmt.Errorf("worker returned status %d", resp.StatusCode)
 	}
 
-	// Parse response
 	var dispResp DispatchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&dispResp); err != nil {
-		d.handleFailure(task, worker, fmt.Sprintf("invalid response: %v", err))
 		return err
 	}
 
@@ -137,9 +155,8 @@ func (d *Dispatcher) Dispatch(task *protocol.Task, worker *protocol.Worker) erro
 		var fp failPayload
 		json.Unmarshal(dispResp.Payload, &fp)
 		d.handleFailure(task, worker, fp.Error.Message)
-		return nil
+		return nil // worker explicitly failed, don't retry
 	default:
-		d.handleFailure(task, worker, fmt.Sprintf("unexpected response type: %s", dispResp.Type))
 		return fmt.Errorf("unexpected response type: %s", dispResp.Type)
 	}
 }
@@ -148,12 +165,26 @@ func (d *Dispatcher) handleComplete(task *protocol.Task, worker *protocol.Worker
 	var cp completePayload
 	json.Unmarshal(payload, &cp)
 
-	task.Status = protocol.TaskCompleted
 	task.Output = cp.Output
 	task.Cost = cp.Cost
+	task.Progress = 100
+
+	// Evaluate output quality if schema specified
+	if d.evaluator != nil && len(task.Contract.OutputSchema) > 0 {
+		result := d.evaluator.Evaluate(cp.Output, task.Contract)
+		if !result.Pass {
+			task.Status = protocol.TaskFailed
+			task.Error = &protocol.TaskError{Code: "evaluation_failed", Message: fmt.Sprintf("output validation failed: %v", result.Errors)}
+			now := time.Now()
+			task.CompletedAt = &now
+			d.store.UpdateTask(task)
+			return fmt.Errorf("evaluation failed")
+		}
+	}
+
+	task.Status = protocol.TaskCompleted
 	now := time.Now()
 	task.CompletedAt = &now
-	task.Progress = 100
 	d.store.UpdateTask(task)
 
 	// Track cost

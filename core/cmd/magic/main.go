@@ -46,8 +46,21 @@ func runServer() {
 		port = "8080"
 	}
 
+	// Store
+	var s store.Store
+	storePath := os.Getenv("MAGIC_STORE")
+	if storePath != "" {
+		sqliteStore, err := store.NewSQLiteStore(storePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to open store: %v\n", err)
+			os.Exit(1)
+		}
+		s = sqliteStore
+	} else {
+		s = store.NewMemoryStore()
+	}
+
 	// Core
-	s := store.NewMemoryStore()
 	bus := events.NewBus()
 	reg := registry.New(s, bus)
 	rt := router.New(reg, s, bus)
@@ -58,7 +71,7 @@ func runServer() {
 	// Tier 2
 	cc := costctrl.New(s, bus)
 	ev := evaluator.New(bus)
-	disp := dispatcher.New(s, bus, cc)
+	disp := dispatcher.New(s, bus, cc, ev)
 	orch := orchestrator.New(s, rt, bus, disp)
 	mgr := orgmgr.New(s, bus)
 	kb := knowledge.New(s, bus)
@@ -97,6 +110,9 @@ func runServer() {
 			fmt.Println("  Authentication: enabled (MAGIC_API_KEY)")
 		} else {
 			fmt.Println("  Authentication: disabled (set MAGIC_API_KEY to enable)")
+		}
+		if os.Getenv("MAGIC_STORE") == "" {
+			fmt.Println("  Storage: in-memory (set MAGIC_STORE=path.db for persistence)")
 		}
 		fmt.Println("  POST /api/v1/workers/register  — Register a worker")
 		fmt.Println("  GET  /api/v1/workers           — List workers")

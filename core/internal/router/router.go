@@ -75,7 +75,7 @@ func (r *Router) RouteTask(task *protocol.Task) (*protocol.Worker, error) {
 	default:
 		scores := make([]WorkerScore, len(capable))
 		for i, w := range capable {
-			scores[i] = WorkerScore{Worker: w, Score: scoreBestMatch(w)}
+			scores[i] = WorkerScore{Worker: w, Score: scoreBestMatch(w, task.Priority)}
 		}
 		sort.Slice(scores, func(i, j int) bool {
 			return scores[i].Score > scores[j].Score
@@ -89,6 +89,9 @@ func (r *Router) RouteTask(task *protocol.Task) (*protocol.Worker, error) {
 
 	task.AssignedWorker = selected.ID
 	task.Status = protocol.TaskAssigned
+
+	// Increment worker load
+	selected.CurrentLoad++
 
 	r.bus.Publish(events.Event{
 		Type:   "task.routed",

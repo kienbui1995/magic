@@ -159,24 +159,26 @@ const (
 
 // Step statuses
 const (
-	StepPending   = "pending"
-	StepRunning   = "running"
-	StepCompleted = "completed"
-	StepFailed    = "failed"
-	StepSkipped   = "skipped"
-	StepBlocked   = "blocked"
+	StepPending       = "pending"
+	StepRunning       = "running"
+	StepCompleted     = "completed"
+	StepFailed        = "failed"
+	StepSkipped       = "skipped"
+	StepBlocked       = "blocked"
+	StepAwaitApproval = "awaiting_approval"
 )
 
 type WorkflowStep struct {
-	ID        string          `json:"id"`
-	TaskType  string          `json:"task_type"`
-	Input     json.RawMessage `json:"input,omitempty"`
-	DependsOn []string        `json:"depends_on,omitempty"`
-	OnFailure string          `json:"on_failure,omitempty"`
-	Status    string          `json:"status,omitempty"`
-	TaskID    string          `json:"task_id,omitempty"`
-	Output    json.RawMessage `json:"output,omitempty"`
-	Error     *TaskError      `json:"error,omitempty"`
+	ID               string          `json:"id"`
+	TaskType         string          `json:"task_type"`
+	Input            json.RawMessage `json:"input,omitempty"`
+	DependsOn        []string        `json:"depends_on,omitempty"`
+	OnFailure        string          `json:"on_failure,omitempty"`
+	ApprovalRequired bool            `json:"approval_required,omitempty"`
+	Status           string          `json:"status,omitempty"`
+	TaskID           string          `json:"task_id,omitempty"`
+	Output           json.RawMessage `json:"output,omitempty"`
+	Error            *TaskError      `json:"error,omitempty"`
 }
 
 type Workflow struct {

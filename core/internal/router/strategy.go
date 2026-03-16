@@ -15,6 +15,10 @@ func filterByCapability(workers []*protocol.Worker, required []string) []*protoc
 		if w.Status != protocol.StatusActive {
 			continue
 		}
+		// Skip overloaded workers
+		if w.Limits.MaxConcurrentTasks > 0 && w.CurrentLoad >= w.Limits.MaxConcurrentTasks {
+			continue
+		}
 		if hasAllCapabilities(w, required) {
 			result = append(result, w)
 		}
@@ -35,7 +39,7 @@ func hasAllCapabilities(w *protocol.Worker, required []string) bool {
 	return true
 }
 
-func scoreBestMatch(w *protocol.Worker) float64 {
+func scoreBestMatch(w *protocol.Worker, taskPriority string) float64 {
 	availability := 1.0
 	if w.Limits.MaxConcurrentTasks > 0 {
 		availability = 1.0 - float64(w.CurrentLoad)/float64(w.Limits.MaxConcurrentTasks)

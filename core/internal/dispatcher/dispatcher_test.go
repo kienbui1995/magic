@@ -58,7 +58,7 @@ func TestDispatcher_Success(t *testing.T) {
 	}
 	s.AddTask(task)
 
-	d := dispatcher.New(s, bus, cc)
+	d := dispatcher.New(s, bus, cc, nil)
 	err := d.Dispatch(task, worker)
 	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
@@ -111,7 +111,7 @@ func TestDispatcher_WorkerFails(t *testing.T) {
 	}
 	s.AddTask(task)
 
-	d := dispatcher.New(s, bus, nil)
+	d := dispatcher.New(s, bus, nil, nil)
 	d.Dispatch(task, worker)
 
 	got, _ := s.GetTask("task_002")
@@ -143,7 +143,7 @@ func TestDispatcher_WorkerUnreachable(t *testing.T) {
 	}
 	s.AddTask(task)
 
-	d := dispatcher.New(s, bus, nil)
+	d := dispatcher.New(s, bus, nil, nil)
 	err := d.Dispatch(task, worker)
 	if err == nil {
 		t.Error("should fail when worker is unreachable")
@@ -190,7 +190,7 @@ func TestDispatcher_CostTracking(t *testing.T) {
 	}
 	s.AddTask(task)
 
-	d := dispatcher.New(s, bus, cc)
+	d := dispatcher.New(s, bus, cc, nil)
 	d.Dispatch(task, worker)
 
 	time.Sleep(50 * time.Millisecond)

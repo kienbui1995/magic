@@ -160,12 +160,51 @@ func (o *Orchestrator) advanceWorkflow(wf *protocol.Workflow) {
 }
 
 func (o *Orchestrator) dispatchStep(wf *protocol.Workflow, step *protocol.WorkflowStep) {
+	// Check if step needs approval before dispatch
+	if step.ApprovalRequired {
+		step.Status = protocol.StepAwaitApproval
+		o.bus.Publish(events.Event{
+			Type:     "workflow.step_awaiting_approval",
+			Source:   "orchestrator",
+			Severity: "warn",
+			Payload: map[string]any{
+				"workflow_id": wf.ID,
+				"step_id":     step.ID,
+				"task_type":   step.TaskType,
+			},
+		})
+		return
+	}
+
+	// Build input: merge dependency outputs into step input
+	input := step.Input
+	if len(step.DependsOn) > 0 {
+		merged := make(map[string]any)
+		// Start with step's own input
+		if len(input) > 0 {
+			json.Unmarshal(input, &merged)
+		}
+		// Add outputs from dependencies
+		depOutputs := make(map[string]json.RawMessage)
+		for _, depID := range step.DependsOn {
+			for _, s := range wf.Steps {
+				if s.ID == depID && len(s.Output) > 0 {
+					depOutputs[depID] = s.Output
+				}
+			}
+		}
+		if len(depOutputs) > 0 {
+			merged["_deps"] = depOutputs
+		}
+		input, _ = json.Marshal(merged)
+	}
+
 	task := &protocol.Task{
 		ID:       protocol.GenerateID("task"),
 		Type:     step.TaskType,
 		Priority: protocol.PriorityNormal,
 		Status:   protocol.TaskPending,
-		Input:    step.Input,
+		Input:    input,
 		Routing: protocol.RoutingConfig{
 			Strategy:             "best_match",
 			RequiredCapabilities: []string{step.TaskType},
@@ -201,6 +240,32 @@ func (o *Orchestrator) dispatchStep(wf *protocol.Workflow, step *protocol.Workfl
 			}
 		}()
 	}
+}
+
+// ApproveStep approves a step that is awaiting approval, allowing it to proceed.
+func (o *Orchestrator) ApproveStep(workflowID, stepID string) error {
+	wf, err := o.store.GetWorkflow(workflowID)
+	if err != nil {
+		return err
+	}
+
+	for i := range wf.Steps {
+		if wf.Steps[i].ID == stepID && wf.Steps[i].Status == protocol.StepAwaitApproval {
+			wf.Steps[i].ApprovalRequired = false // clear flag
+			wf.Steps[i].Status = protocol.StepPending // reset to pending
+			if err := o.store.UpdateWorkflow(wf); err != nil {
+				return err
+			}
+			o.bus.Publish(events.Event{
+				Type:   "workflow.step_approved",
+				Source: "orchestrator",
+				Payload: map[string]any{"workflow_id": workflowID, "step_id": stepID},
+			})
+			go o.advanceWorkflow(wf)
+			return nil
+		}
+	}
+	return fmt.Errorf("step not found or not awaiting approval")
 }
 
 func (o *Orchestrator) GetWorkflow(id string) (*protocol.Workflow, error) {
