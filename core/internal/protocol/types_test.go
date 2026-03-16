@@ -3,6 +3,7 @@ package protocol_test
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/kienbm/magic-claw/core/internal/protocol"
 )
@@ -87,5 +88,45 @@ func TestGenerateID(t *testing.T) {
 	}
 	if len(id1) < 10 {
 		t.Errorf("ID too short: %q", id1)
+	}
+}
+
+func TestMessageSerialization(t *testing.T) {
+	msg := protocol.Message{
+		Protocol:  "mcp2",
+		Version:   "1.0",
+		Type:      protocol.MsgWorkerRegister,
+		ID:        "msg_001",
+		Timestamp: time.Now(),
+		Source:    "worker_001",
+		Target:    "org_magic",
+		Payload:   json.RawMessage(`{"name": "TestBot"}`),
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var msg2 protocol.Message
+	if err := json.Unmarshal(data, &msg2); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if msg2.Type != protocol.MsgWorkerRegister {
+		t.Errorf("Type: got %q, want %q", msg2.Type, protocol.MsgWorkerRegister)
+	}
+}
+
+func TestNewMessage(t *testing.T) {
+	msg := protocol.NewMessage(protocol.MsgTaskAssign, "org", "worker_001", json.RawMessage(`{}`))
+	if msg.Protocol != "mcp2" {
+		t.Errorf("Protocol: got %q, want mcp2", msg.Protocol)
+	}
+	if msg.ID == "" {
+		t.Error("ID should not be empty")
+	}
+	if msg.Timestamp.IsZero() {
+		t.Error("Timestamp should not be zero")
 	}
 }
