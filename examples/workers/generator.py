@@ -5,7 +5,7 @@ Usage: python examples/workers/generator.py
 Note: This is a demo using string templates.
 Replace with an LLM for production.
 """
-from magic_claw import Worker
+from magic_ai import Worker
 
 worker = Worker(name="GeneratorBot", endpoint="http://localhost:9005")
 

@@ -13,13 +13,13 @@ This guide shows how to wrap your existing CrewAI agents as MagiC workers, so th
 ## Prerequisites
 
 ```bash
-pip install magic-claw crewai
+pip install magic-ai crewai
 ```
 
 ## Step 1: Wrap a CrewAI Agent
 
 ```python
-from magic_claw import Worker
+from magic_ai import Worker
 from crewai import Agent, Task, Crew
 
 # Create your CrewAI agent as usual
@@ -56,7 +56,7 @@ if __name__ == "__main__":
 ## Step 2: Wrap a CrewAI Crew (Multi-Agent)
 
 ```python
-from magic_claw import Worker
+from magic_ai import Worker
 from crewai import Agent, Task, Crew
 
 writer = Agent(role="Writer", goal="Write engaging content", backstory="Expert writer")

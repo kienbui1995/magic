@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/kienbui1995/magic/core/internal/dispatcher"
@@ -17,6 +18,7 @@ type Orchestrator struct {
 	router     *router.Router
 	bus        *events.Bus
 	dispatcher *dispatcher.Dispatcher
+	mu         sync.Mutex // protects workflow state transitions
 }
 
 func New(s store.Store, rt *router.Router, bus *events.Bus, disp *dispatcher.Dispatcher) *Orchestrator {
@@ -60,6 +62,9 @@ func (o *Orchestrator) Submit(name string, steps []protocol.WorkflowStep, ctx pr
 }
 
 func (o *Orchestrator) CompleteStep(workflowID, taskID string, output json.RawMessage) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
 	wf, err := o.store.GetWorkflow(workflowID)
 	if err != nil {
 		return err
@@ -83,11 +88,14 @@ func (o *Orchestrator) CompleteStep(workflowID, taskID string, output json.RawMe
 		Payload: map[string]any{"workflow_id": workflowID, "task_id": taskID},
 	})
 
-	go o.advanceWorkflow(wf)
+	o.advanceWorkflowLocked(wf)
 	return nil
 }
 
 func (o *Orchestrator) FailStep(workflowID, taskID string, taskErr protocol.TaskError) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
 	wf, err := o.store.GetWorkflow(workflowID)
 	if err != nil {
 		return err
@@ -123,11 +131,17 @@ func (o *Orchestrator) FailStep(workflowID, taskID string, taskErr protocol.Task
 		return err
 	}
 
-	go o.advanceWorkflow(wf)
+	o.advanceWorkflowLocked(wf)
 	return nil
 }
 
 func (o *Orchestrator) advanceWorkflow(wf *protocol.Workflow) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.advanceWorkflowLocked(wf)
+}
+
+func (o *Orchestrator) advanceWorkflowLocked(wf *protocol.Workflow) {
 	if IsWorkflowDone(wf.Steps) {
 		if HasFailed(wf.Steps) {
 			wf.Status = protocol.WorkflowFailed

@@ -1,5 +1,10 @@
 # MagiC
 
+[![CI](https://github.com/kienbui1995/magic/actions/workflows/ci.yml/badge.svg)](https://github.com/kienbui1995/magic/actions/workflows/ci.yml)
+[![Go 1.24+](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://go.dev)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python)](https://python.org)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 > Don't build another AI. Manage the ones you have.
 
 MagiC is an open-source framework for managing fleets of AI workers. Think **Kubernetes for AI agents** — it doesn't build agents, it manages any agents built with any tool (CrewAI, LangChain, custom bots, etc.) through an open protocol.
@@ -17,7 +22,7 @@ ContentBot  SEOBot  LeadBot  CodeBot
 
 ### Option A: From source
 
-**Prerequisites:** Go 1.22+, Python 3.11+
+**Prerequisites:** Go 1.24+, Python 3.11+
 
 ```bash
 # 1. Clone and build
@@ -44,7 +49,7 @@ docker run -p 8080:8080 magic
 Save as `worker.py`:
 
 ```python
-from magic_claw import Worker
+from magic_ai import Worker
 
 worker = Worker(name="HelloBot", endpoint="http://localhost:9000")
 
@@ -248,8 +253,8 @@ magic/
 │       ├── costctrl/               # Budget tracking
 │       ├── orgmgr/                 # Team management
 │       └── knowledge/              # Knowledge hub
-├── sdk/python/                     # Python SDK (pip install magic-claw)
-│   ├── magic_claw/
+├── sdk/python/                     # Python SDK (pip install magic-ai)
+│   ├── magic_ai/
 │   │   ├── worker.py               # Worker class
 │   │   ├── client.py               # HTTP client
 │   │   └── decorators.py           # @capability decorator
@@ -286,7 +291,7 @@ python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 ## Tech Stack
 
-- **Core:** Go 1.22+ (goroutines, small binary, K8s/Docker precedent)
+- **Core:** Go 1.24+ (goroutines, small binary, K8s/Docker precedent)
 - **SDK:** Python 3.11+ (AI/ML ecosystem)
 - **Protocol:** MCP² — JSON over HTTP (WebSocket/gRPC planned)
 - **Storage:** In-memory (SQLite/PostgreSQL planned)

@@ -90,8 +90,9 @@ func (r *Router) RouteTask(task *protocol.Task) (*protocol.Worker, error) {
 	task.AssignedWorker = selected.ID
 	task.Status = protocol.TaskAssigned
 
-	// Increment worker load
+	// Increment worker load via store to avoid race condition
 	selected.CurrentLoad++
+	r.store.UpdateWorker(selected)
 
 	r.bus.Publish(events.Event{
 		Type:   "task.routed",

@@ -4,7 +4,7 @@ import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Callable
 
-from magic_claw.client import MagiCClient
+from magic_ai.client import MagiCClient
 
 class Worker:
     def __init__(self, name: str, endpoint: str = "http://localhost:9000"):

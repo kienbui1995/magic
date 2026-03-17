@@ -1,4 +1,4 @@
-from magic_claw import Worker
+from magic_ai import Worker
 
 def test_worker_capability_registration():
     w = Worker(name="TestBot")

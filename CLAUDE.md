@@ -39,7 +39,7 @@ magic/
 │       ├── costctrl/        # Budget & cost tracking
 │       ├── orgmgr/          # Organization, teams, RBAC
 │       └── knowledge/       # Shared knowledge hub
-├── sdk/python/              # Python SDK (magic_claw package)
+├── sdk/python/              # Python SDK (magic_ai package)
 └── examples/hello-worker/   # Minimal example worker
 ```
 

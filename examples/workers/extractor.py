@@ -6,7 +6,7 @@ Note: This is a demo using regex patterns.
 Replace with an LLM for production.
 """
 import re
-from magic_claw import Worker
+from magic_ai import Worker
 
 worker = Worker(name="ExtractorBot", endpoint="http://localhost:9004")
 

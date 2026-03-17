@@ -2,7 +2,7 @@
 Summarizer Worker — Summarizes text content.
 Usage: python examples/workers/summarizer.py
 """
-from magic_claw import Worker
+from magic_ai import Worker
 
 worker = Worker(name="SummarizerBot", endpoint="http://localhost:9001")
 

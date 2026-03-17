@@ -5,7 +5,7 @@ Usage: python examples/workers/translator.py
 Note: This is a demo using simple word replacement.
 Replace with a real translation API for production.
 """
-from magic_claw import Worker
+from magic_ai import Worker
 
 worker = Worker(name="TranslatorBot", endpoint="http://localhost:9002")
 

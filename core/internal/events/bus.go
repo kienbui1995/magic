@@ -1,6 +1,7 @@
 package events
 
 import (
+	"log"
 	"sync"
 	"time"
 )
@@ -51,14 +52,22 @@ func (b *Bus) Publish(e Event) {
 
 	for _, h := range b.handlers[e.Type] {
 		go func(handler Handler) {
-			defer func() { recover() }()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[events] panic in handler for %q: %v", e.Type, r)
+				}
+			}()
 			handler(e)
 		}(h)
 	}
 	if e.Type != "*" {
 		for _, h := range b.handlers["*"] {
 			go func(handler Handler) {
-				defer func() { recover() }()
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[events] panic in wildcard handler for %q: %v", e.Type, r)
+					}
+				}()
 				handler(e)
 			}(h)
 		}
