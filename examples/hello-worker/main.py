@@ -1,4 +1,4 @@
-from magic_ai import Worker
+from magic_ai_sdk import Worker
 
 worker = Worker(name="HelloBot", endpoint="http://localhost:9000")
 

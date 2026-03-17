@@ -10,7 +10,7 @@
 
 **Please do NOT report security vulnerabilities through public GitHub issues.**
 
-Instead, email **security@magic-ai.dev** (or open a private security advisory on GitHub).
+Instead, email **security@magic-ai-sdk.dev** (or open a private security advisory on GitHub).
 
 Include:
 - Description of the vulnerability
@@ -23,7 +23,7 @@ We will acknowledge receipt within 48 hours and aim to release a fix within 7 da
 ## Scope
 
 - MagiC core server (Go)
-- Python SDK (`magic-ai`)
+- Python SDK (`magic-ai-sdk`)
 - Official Docker images
 - API authentication and authorization
 

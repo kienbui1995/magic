@@ -49,7 +49,7 @@ docker run -p 8080:8080 magic
 Save as `worker.py`:
 
 ```python
-from magic_ai_sdk import Worker
+from magic_ai import Worker
 
 worker = Worker(name="HelloBot", endpoint="http://localhost:9000")
 
@@ -253,8 +253,8 @@ magic/
 │       ├── costctrl/               # Budget tracking
 │       ├── orgmgr/                 # Team management
 │       └── knowledge/              # Knowledge hub
-├── sdk/python/                     # Python SDK (pip install magic-ai-sdk)
-│   ├── magic_ai_sdk/
+├── sdk/python/                     # Python SDK (pip install magic-ai)
+│   ├── magic_ai/
 │   │   ├── worker.py               # Worker class
 │   │   ├── client.py               # HTTP client
 │   │   └── decorators.py           # @capability decorator

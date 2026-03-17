@@ -5,7 +5,7 @@ Usage: python examples/workers/classifier.py
 Note: This is a demo using keyword matching.
 Replace with an LLM or ML model for production.
 """
-from magic_ai import Worker
+from magic_ai_sdk import Worker
 
 worker = Worker(name="ClassifierBot", endpoint="http://localhost:9003")
 

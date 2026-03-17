@@ -1,4 +1,4 @@
-from magic_ai import Worker
+from magic_ai_sdk import Worker
 
 def test_worker_capability_registration():
     w = Worker(name="TestBot")

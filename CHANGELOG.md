@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README badges (CI, Go, Python, License)
 
 ### Changed
-- Renamed Python SDK from `magic-claw` to `magic-ai` (`pip install magic-ai`, `from magic_ai import Worker`)
+- Renamed Python SDK from `magic-claw` to `magic-ai-sdk` (`pip install magic-ai-sdk`, `from magic_ai_sdk import Worker`)
 - Go version requirement updated to 1.24+ (Dockerfile, CI, docs)
 
 ### Fixed

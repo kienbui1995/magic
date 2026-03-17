@@ -1,4 +1,4 @@
-from magic_ai import MagiCClient, AsyncMagiCClient
+from magic_ai_sdk import MagiCClient, AsyncMagiCClient
 
 
 def test_sync_client_init():
@@ -18,7 +18,7 @@ def test_async_client_init():
 
 def test_exports():
     """Verify all public symbols are exported."""
-    from magic_ai import Worker, MagiCClient, AsyncMagiCClient, capability
+    from magic_ai_sdk import Worker, MagiCClient, AsyncMagiCClient, capability
     assert Worker is not None
     assert MagiCClient is not None
     assert AsyncMagiCClient is not None
