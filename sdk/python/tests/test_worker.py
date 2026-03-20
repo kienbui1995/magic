@@ -1,4 +1,5 @@
-from magic_ai_sdk import Worker
+from magic_ai_sdk import Worker, __version__
+
 
 def test_worker_capability_registration():
     w = Worker(name="TestBot")
@@ -10,6 +11,7 @@ def test_worker_capability_registration():
     assert "greeting" in w._capabilities
     assert w._capabilities["greeting"]["name"] == "greeting"
 
+
 def test_worker_handle_task():
     w = Worker(name="TestBot")
 
@@ -20,6 +22,7 @@ def test_worker_handle_task():
     result = w.handle_task("greeting", {"name": "Kien"})
     assert result == {"result": "Hello, Kien!"}
 
+
 def test_worker_handle_unknown_task():
     w = Worker(name="TestBot")
     try:
@@ -27,3 +30,12 @@ def test_worker_handle_unknown_task():
         assert False, "should raise"
     except ValueError:
         pass
+
+
+def test_version():
+    assert __version__ == "0.2.0"
+
+
+def test_worker_max_workers():
+    w = Worker(name="TestBot", max_workers=10)
+    assert w.max_workers == 10

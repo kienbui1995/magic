@@ -1,15 +1,24 @@
+"""MagiC HTTP client for communicating with the server."""
+
+import logging
 import httpx
+
+logger = logging.getLogger("magic_ai_sdk")
 
 
 class MagiCClient:
-    """Synchronous client for the MagiC server API."""
+    """HTTP client for the MagiC server API."""
 
-    def __init__(self, base_url: str, api_key: str | None = None):
+    def __init__(self, base_url: str, api_key: str = ""):
         self.base_url = base_url.rstrip("/")
         headers = {}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
-        self._client = httpx.Client(base_url=self.base_url, timeout=30, headers=headers)
+        self._client = httpx.Client(
+            base_url=self.base_url,
+            timeout=httpx.Timeout(connect=5, read=30, write=10, pool=5),
+            headers=headers,
+        )
 
     # Health
     def health(self) -> dict:
