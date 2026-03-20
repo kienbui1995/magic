@@ -1,6 +1,7 @@
 package dispatcher_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -59,7 +60,7 @@ func TestDispatcher_Success(t *testing.T) {
 	s.AddTask(task)
 
 	d := dispatcher.New(s, bus, cc, nil)
-	err := d.Dispatch(task, worker)
+	err := d.Dispatch(context.Background(), task, worker)
 	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
@@ -112,7 +113,7 @@ func TestDispatcher_WorkerFails(t *testing.T) {
 	s.AddTask(task)
 
 	d := dispatcher.New(s, bus, nil, nil)
-	d.Dispatch(task, worker)
+	d.Dispatch(context.Background(), task, worker)
 
 	got, _ := s.GetTask("task_002")
 	if got.Status != protocol.TaskFailed {
@@ -144,7 +145,7 @@ func TestDispatcher_WorkerUnreachable(t *testing.T) {
 	s.AddTask(task)
 
 	d := dispatcher.New(s, bus, nil, nil)
-	err := d.Dispatch(task, worker)
+	err := d.Dispatch(context.Background(), task, worker)
 	if err == nil {
 		t.Error("should fail when worker is unreachable")
 	}
@@ -191,7 +192,7 @@ func TestDispatcher_CostTracking(t *testing.T) {
 	s.AddTask(task)
 
 	d := dispatcher.New(s, bus, cc, nil)
-	d.Dispatch(task, worker)
+	d.Dispatch(context.Background(), task, worker)
 
 	time.Sleep(50 * time.Millisecond)
 

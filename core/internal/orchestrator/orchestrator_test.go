@@ -211,3 +211,22 @@ func TestOrchestrator_ApprovalGate(t *testing.T) {
 		t.Errorf("step status after approval: got %q, want running", got.Steps[1].Status)
 	}
 }
+
+func TestOrchestrator_CancelWorkflow(t *testing.T) {
+	orch, s := setupOrchestrator(t)
+
+	wf, _ := orch.Submit("Cancellable", []protocol.WorkflowStep{
+		{ID: "step1", TaskType: "market_research", Input: json.RawMessage(`{}`)},
+		{ID: "step2", TaskType: "content_writing", DependsOn: []string{"step1"}, Input: json.RawMessage(`{}`)},
+	}, protocol.TaskContext{})
+
+	err := orch.CancelWorkflow(wf.ID)
+	if err != nil {
+		t.Fatalf("CancelWorkflow: %v", err)
+	}
+
+	got, _ := s.GetWorkflow(wf.ID)
+	if got.Status != protocol.WorkflowAborted {
+		t.Errorf("status: got %q, want aborted", got.Status)
+	}
+}

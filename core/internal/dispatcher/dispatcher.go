@@ -2,11 +2,13 @@ package dispatcher
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/kienbui1995/magic/core/internal/costctrl"
@@ -16,7 +18,16 @@ import (
 	"github.com/kienbui1995/magic/core/internal/store"
 )
 
-const maxRetries = 2
+const (
+	maxRetries           = 2
+	circuitOpenDuration  = 30 * time.Second
+	circuitFailThreshold = 3
+)
+
+type circuitState struct {
+	failures  int
+	openUntil time.Time
+}
 
 type Dispatcher struct {
 	store     store.Store
@@ -24,6 +35,8 @@ type Dispatcher struct {
 	costCtrl  *costctrl.Controller
 	evaluator *evaluator.Evaluator
 	client    *http.Client
+	circuits  map[string]*circuitState
+	circuitMu sync.Mutex
 }
 
 func New(s store.Store, bus *events.Bus, cc *costctrl.Controller, ev *evaluator.Evaluator) *Dispatcher {
@@ -33,6 +46,7 @@ func New(s store.Store, bus *events.Bus, cc *costctrl.Controller, ev *evaluator.
 		costCtrl:  cc,
 		evaluator: ev,
 		client:    &http.Client{Timeout: 60 * time.Second},
+		circuits:  make(map[string]*circuitState),
 	}
 }
 
@@ -79,10 +93,23 @@ func validateEndpointURL(rawURL string) error {
 
 // Dispatch sends a task.assign to the worker's endpoint and processes the response.
 // It runs synchronously — caller should use a goroutine if async is needed.
-func (d *Dispatcher) Dispatch(task *protocol.Task, worker *protocol.Worker) error {
+func (d *Dispatcher) Dispatch(ctx context.Context, task *protocol.Task, worker *protocol.Worker) error {
+	// Check circuit breaker
+	if d.isCircuitOpen(worker.ID) {
+		d.handleFailure(task, worker, "circuit breaker open: worker has too many recent failures")
+		return fmt.Errorf("circuit breaker open for worker %s", worker.ID)
+	}
+
 	if err := validateEndpointURL(worker.Endpoint.URL); err != nil {
 		d.handleFailure(task, worker, fmt.Sprintf("invalid endpoint: %v", err))
 		return err
+	}
+
+	// Apply contract timeout if specified
+	if task.Contract.TimeoutMs > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(task.Contract.TimeoutMs)*time.Millisecond)
+		defer cancel()
 	}
 
 	// Build task.assign message
@@ -118,22 +145,36 @@ func (d *Dispatcher) Dispatch(task *protocol.Task, worker *protocol.Worker) erro
 	var lastErr error
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			time.Sleep(time.Duration(attempt) * time.Second) // linear backoff
+			select {
+			case <-ctx.Done():
+				d.handleFailure(task, worker, fmt.Sprintf("context cancelled: %v", ctx.Err()))
+				d.recordFailure(worker.ID)
+				return ctx.Err()
+			case <-time.After(time.Duration(attempt) * time.Second):
+			}
 		}
 
-		lastErr = d.tryDispatch(body, task, worker)
+		lastErr = d.tryDispatch(ctx, body, task, worker)
 		if lastErr == nil {
+			d.recordSuccess(worker.ID)
 			return nil
 		}
 	}
 
 	// All retries failed
 	d.handleFailure(task, worker, fmt.Sprintf("failed after %d retries: %v", maxRetries+1, lastErr))
+	d.recordFailure(worker.ID)
 	return lastErr
 }
 
-func (d *Dispatcher) tryDispatch(body []byte, task *protocol.Task, worker *protocol.Worker) error {
-	resp, err := d.client.Post(worker.Endpoint.URL, "application/json", bytes.NewReader(body))
+func (d *Dispatcher) tryDispatch(ctx context.Context, body []byte, task *protocol.Task, worker *protocol.Worker) error {
+	req, err := http.NewRequestWithContext(ctx, "POST", worker.Endpoint.URL, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := d.client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -235,4 +276,40 @@ func (d *Dispatcher) handleFailure(task *protocol.Task, worker *protocol.Worker,
 			"reason":    reason,
 		},
 	})
+}
+
+func (d *Dispatcher) isCircuitOpen(workerID string) bool {
+	d.circuitMu.Lock()
+	defer d.circuitMu.Unlock()
+	cs, ok := d.circuits[workerID]
+	if !ok {
+		return false
+	}
+	if cs.failures >= circuitFailThreshold && time.Now().Before(cs.openUntil) {
+		return true
+	}
+	if time.Now().After(cs.openUntil) {
+		cs.failures = 0 // reset after cooldown
+	}
+	return false
+}
+
+func (d *Dispatcher) recordSuccess(workerID string) {
+	d.circuitMu.Lock()
+	defer d.circuitMu.Unlock()
+	delete(d.circuits, workerID)
+}
+
+func (d *Dispatcher) recordFailure(workerID string) {
+	d.circuitMu.Lock()
+	defer d.circuitMu.Unlock()
+	cs, ok := d.circuits[workerID]
+	if !ok {
+		cs = &circuitState{}
+		d.circuits[workerID] = cs
+	}
+	cs.failures++
+	if cs.failures >= circuitFailThreshold {
+		cs.openUntil = time.Now().Add(circuitOpenDuration)
+	}
 }

@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -242,7 +243,7 @@ func (o *Orchestrator) dispatchStep(wf *protocol.Workflow, step *protocol.Workfl
 	// Dispatch to worker asynchronously
 	if o.dispatcher != nil {
 		go func() {
-			err := o.dispatcher.Dispatch(task, worker)
+			err := o.dispatcher.Dispatch(context.Background(), task, worker)
 			if err != nil {
 				o.FailStep(wf.ID, task.ID, protocol.TaskError{Code: "dispatch_error", Message: err.Error()})
 			} else {
@@ -280,6 +281,43 @@ func (o *Orchestrator) ApproveStep(workflowID, stepID string) error {
 		}
 	}
 	return fmt.Errorf("step not found or not awaiting approval")
+}
+
+// CancelWorkflow aborts a running workflow, marking pending steps as failed.
+func (o *Orchestrator) CancelWorkflow(workflowID string) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	wf, err := o.store.GetWorkflow(workflowID)
+	if err != nil {
+		return err
+	}
+
+	if wf.Status != protocol.WorkflowRunning {
+		return fmt.Errorf("workflow is not running (status: %s)", wf.Status)
+	}
+
+	for i := range wf.Steps {
+		s := &wf.Steps[i]
+		if s.Status == protocol.StepPending || s.Status == protocol.StepAwaitApproval {
+			s.Status = protocol.StepFailed
+			s.Error = &protocol.TaskError{Code: "cancelled", Message: "workflow cancelled"}
+		}
+	}
+
+	wf.Status = protocol.WorkflowAborted
+	now := time.Now()
+	wf.DoneAt = &now
+	o.store.UpdateWorkflow(wf)
+
+	o.bus.Publish(events.Event{
+		Type:     "workflow.cancelled",
+		Source:   "orchestrator",
+		Severity: "warn",
+		Payload:  map[string]any{"workflow_id": workflowID},
+	})
+
+	return nil
 }
 
 func (o *Orchestrator) GetWorkflow(id string) (*protocol.Workflow, error) {

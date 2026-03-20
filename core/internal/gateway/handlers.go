@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -136,7 +137,7 @@ func (g *Gateway) handleSubmitTask(w http.ResponseWriter, r *http.Request) {
 	// Copy for async dispatch to avoid race condition (H-04)
 	taskCopy := task
 	workerCopy := *worker
-	go g.deps.Dispatcher.Dispatch(&taskCopy, &workerCopy)
+	go g.deps.Dispatcher.Dispatch(context.Background(), &taskCopy, &workerCopy)
 
 	writeJSON(w, http.StatusCreated, task)
 }
@@ -207,6 +208,15 @@ func (g *Gateway) handleApproveStep(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "approved"})
+}
+
+func (g *Gateway) handleCancelWorkflow(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := g.deps.Orchestrator.CancelWorkflow(id); err != nil {
+		writeError(w, http.StatusBadRequest, "cancel failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }
 
 type CreateTeamRequest struct {
