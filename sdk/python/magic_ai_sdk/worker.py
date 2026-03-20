@@ -4,7 +4,6 @@ import json
 import logging
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from typing import Callable
 
@@ -24,7 +23,7 @@ class Worker:
         self._handlers: dict[str, Callable] = {}
         self._worker_id: str | None = None
         self._client: MagiCClient | None = None
-        self._executor = ThreadPoolExecutor(max_workers=max_workers)
+        self._semaphore = threading.Semaphore(max_workers)
 
     def capability(self, name: str, description: str = "", est_cost: float = 0.0):
         """Decorator to register a function as a worker capability."""
@@ -80,8 +79,7 @@ class Worker:
 
     def serve(self, host: str = "0.0.0.0", port: int = 9000):
         """Start the worker HTTP server with concurrent task handling."""
-        worker = self
-        executor = self._executor
+        worker_ref = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self):
@@ -91,7 +89,7 @@ class Worker:
                     return
 
                 length = int(content_length)
-                if length > 10 * 1024 * 1024:  # 10MB limit
+                if length > 10 * 1024 * 1024:
                     self.send_error(413, "Request too large")
                     return
 
@@ -109,21 +107,29 @@ class Worker:
                     task_type = payload.get("task_type", "")
                     logger.info("Task %s received (type: %s)", task_id, task_type)
 
-                    # Process task in thread pool
-                    future = executor.submit(worker.handle_task, task_type, payload.get("input", {}))
-                    try:
-                        result = future.result(timeout=300)  # 5 min timeout
-                        response = {
-                            "type": "task.complete",
-                            "payload": {"task_id": task_id, "output": result, "cost": 0.0},
-                        }
-                        logger.info("Task %s completed", task_id)
-                    except Exception as e:
+                    acquired = worker_ref._semaphore.acquire(timeout=5)
+                    if not acquired:
                         response = {
                             "type": "task.fail",
-                            "payload": {"task_id": task_id, "error": {"code": "handler_error", "message": str(e)}},
+                            "payload": {"task_id": task_id, "error": {"code": "overloaded", "message": "worker at max capacity"}},
                         }
-                        logger.error("Task %s failed: %s", task_id, e)
+                        logger.warning("Task %s rejected: at max capacity", task_id)
+                    else:
+                        try:
+                            result = worker_ref.handle_task(task_type, payload.get("input", {}))
+                            response = {
+                                "type": "task.complete",
+                                "payload": {"task_id": task_id, "output": result, "cost": 0.0},
+                            }
+                            logger.info("Task %s completed", task_id)
+                        except Exception as e:
+                            response = {
+                                "type": "task.fail",
+                                "payload": {"task_id": task_id, "error": {"code": "handler_error", "message": str(e)}},
+                            }
+                            logger.error("Task %s failed: %s", task_id, e)
+                        finally:
+                            worker_ref._semaphore.release()
 
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
@@ -137,7 +143,6 @@ class Worker:
 
         self._start_heartbeat()
 
-        # Parse port from endpoint URL
         parsed = self.endpoint.split(":")
         if len(parsed) > 2:
             port = int(parsed[-1].split("/")[0])
@@ -149,4 +154,3 @@ class Worker:
         except KeyboardInterrupt:
             logger.info("Shutting down %s", self.name)
             server.shutdown()
-            self._executor.shutdown(wait=True)
