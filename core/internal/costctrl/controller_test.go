@@ -33,7 +33,7 @@ func TestCostController_BudgetAlert(t *testing.T) {
 	cc := costctrl.New(s, bus)
 	var alerts []events.Event
 	var mu sync.Mutex
-	bus.Subscribe("budget.threshold", func(e events.Event) {
+	_ = bus.Subscribe("budget.threshold", func(e events.Event) {
 		mu.Lock()
 		alerts = append(alerts, e)
 		mu.Unlock()

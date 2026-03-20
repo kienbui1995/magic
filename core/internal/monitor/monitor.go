@@ -32,7 +32,7 @@ func New(bus *events.Bus, writer io.Writer) *Monitor {
 
 // Start subscribes to all events and begins logging.
 func (m *Monitor) Start() {
-	m.bus.Subscribe("*", func(e events.Event) {
+	_ = m.bus.Subscribe("*", func(e events.Event) {
 		atomic.AddInt64(&m.stats.TotalEvents, 1)
 
 		switch e.Type {

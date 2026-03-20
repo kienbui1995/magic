@@ -2,6 +2,7 @@ package events_test
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -10,10 +11,12 @@ import (
 
 func TestEventBus_PubSub(t *testing.T) {
 	bus := events.NewBus()
+	defer bus.Stop()
+
 	var received []events.Event
 	var mu sync.Mutex
 
-	bus.Subscribe("task.completed", func(e events.Event) {
+	_ = bus.Subscribe("task.completed", func(e events.Event) {
 		mu.Lock()
 		received = append(received, e)
 		mu.Unlock()
@@ -39,10 +42,12 @@ func TestEventBus_PubSub(t *testing.T) {
 
 func TestEventBus_WildcardSubscribe(t *testing.T) {
 	bus := events.NewBus()
+	defer bus.Stop()
+
 	var received []events.Event
 	var mu sync.Mutex
 
-	bus.Subscribe("*", func(e events.Event) {
+	_ = bus.Subscribe("*", func(e events.Event) {
 		mu.Lock()
 		received = append(received, e)
 		mu.Unlock()
@@ -57,5 +62,47 @@ func TestEventBus_WildcardSubscribe(t *testing.T) {
 	defer mu.Unlock()
 	if len(received) != 2 {
 		t.Errorf("received: got %d, want 2", len(received))
+	}
+}
+
+func TestEventBus_Unsubscribe(t *testing.T) {
+	bus := events.NewBus()
+	defer bus.Stop()
+
+	var count int64
+	cancel := bus.Subscribe("test", func(e events.Event) {
+		atomic.AddInt64(&count, 1)
+	})
+
+	bus.Publish(events.Event{Type: "test"})
+	time.Sleep(50 * time.Millisecond)
+
+	cancel() // unsubscribe
+
+	bus.Publish(events.Event{Type: "test"})
+	time.Sleep(50 * time.Millisecond)
+
+	if atomic.LoadInt64(&count) != 1 {
+		t.Errorf("count: got %d, want 1 (second event should be ignored)", atomic.LoadInt64(&count))
+	}
+}
+
+func TestEventBus_Stop(t *testing.T) {
+	bus := events.NewBus()
+
+	var count int64
+	_ = bus.Subscribe("test", func(e events.Event) {
+		atomic.AddInt64(&count, 1)
+	})
+
+	// Publish some events
+	for i := 0; i < 100; i++ {
+		bus.Publish(events.Event{Type: "test"})
+	}
+
+	bus.Stop() // should drain all events
+
+	if atomic.LoadInt64(&count) != 100 {
+		t.Errorf("count: got %d, want 100 (all events should be drained)", atomic.LoadInt64(&count))
 	}
 }
