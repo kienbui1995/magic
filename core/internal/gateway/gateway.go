@@ -64,6 +64,7 @@ func (g *Gateway) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/workflows", g.handleListWorkflows)
 	mux.HandleFunc("GET /api/v1/workflows/{id}", g.handleGetWorkflow)
 	mux.HandleFunc("POST /api/v1/workflows/{id}/approve/{stepId}", g.handleApproveStep)
+	mux.HandleFunc("POST /api/v1/workflows/{id}/cancel", g.handleCancelWorkflow)
 
 	// Teams
 	mux.HandleFunc("POST /api/v1/teams", g.handleCreateTeam)
