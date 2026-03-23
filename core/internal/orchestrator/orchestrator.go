@@ -143,6 +143,11 @@ func (o *Orchestrator) advanceWorkflow(wf *protocol.Workflow) {
 }
 
 func (o *Orchestrator) advanceWorkflowLocked(wf *protocol.Workflow) {
+	// Don't advance if workflow is already in a terminal state
+	if wf.Status == protocol.WorkflowAborted || wf.Status == protocol.WorkflowCompleted || wf.Status == protocol.WorkflowFailed {
+		return
+	}
+
 	if IsWorkflowDone(wf.Steps) {
 		if HasFailed(wf.Steps) {
 			wf.Status = protocol.WorkflowFailed

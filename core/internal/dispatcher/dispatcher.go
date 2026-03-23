@@ -194,7 +194,10 @@ func (d *Dispatcher) tryDispatch(ctx context.Context, body []byte, task *protoco
 		return d.handleComplete(task, worker, dispResp.Payload)
 	case protocol.MsgTaskFail:
 		var fp failPayload
-		json.Unmarshal(dispResp.Payload, &fp)
+		if err := json.Unmarshal(dispResp.Payload, &fp); err != nil {
+			d.handleFailure(task, worker, fmt.Sprintf("invalid fail payload: %v", err))
+			return nil
+		}
 		d.handleFailure(task, worker, fp.Error.Message)
 		return nil // worker explicitly failed, don't retry
 	default:
@@ -204,7 +207,10 @@ func (d *Dispatcher) tryDispatch(ctx context.Context, body []byte, task *protoco
 
 func (d *Dispatcher) handleComplete(task *protocol.Task, worker *protocol.Worker, payload json.RawMessage) error {
 	var cp completePayload
-	json.Unmarshal(payload, &cp)
+	if err := json.Unmarshal(payload, &cp); err != nil {
+		d.handleFailure(task, worker, fmt.Sprintf("invalid complete payload: %v", err))
+		return err
+	}
 
 	task.Output = cp.Output
 	task.Cost = cp.Cost
