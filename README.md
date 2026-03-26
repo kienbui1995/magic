@@ -44,6 +44,12 @@ docker build -t magic .
 docker run -p 8080:8080 magic
 ```
 
+### Option C: One-click cloud deploy
+
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/magic)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
+[![Deploy on Fly.io](https://img.shields.io/badge/Deploy%20on-Fly.io-purple?logo=fly.io)](https://fly.io/docs/getting-started/)
+
 ### Create your first worker
 
 Save as `worker.py`:
@@ -177,6 +183,7 @@ python examples/multi-worker/main.py
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/health` | Health check |
+| `GET` | `/dashboard` | Web UI — monitor workers, tasks, costs |
 | `POST` | `/api/v1/workers/register` | Register a worker |
 | `POST` | `/api/v1/workers/heartbeat` | Worker heartbeat |
 | `GET` | `/api/v1/workers` | List workers (`?limit=&offset=`) |
@@ -308,7 +315,7 @@ python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 - [ ] Go SDK — Native Go workers
 - [ ] Persistent storage — SQLite/PostgreSQL
 - [ ] WebSocket — Real-time worker communication
-- [ ] Dashboard — Web UI for monitoring
+- [x] Dashboard — Web UI for monitoring
 
 ## License
 

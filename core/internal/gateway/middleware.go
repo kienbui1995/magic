@@ -11,8 +11,8 @@ const maxBodySize = 1 << 20 // 1 MB
 
 func authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip auth for health check
-		if r.URL.Path == "/health" {
+		// Skip auth for health check and dashboard (dashboard handles auth via ?key= query param)
+		if r.URL.Path == "/health" || r.URL.Path == "/dashboard" {
 			next.ServeHTTP(w, r)
 			return
 		}

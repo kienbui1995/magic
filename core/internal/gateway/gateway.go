@@ -47,6 +47,9 @@ func (g *Gateway) Handler() http.Handler {
 	// Health
 	mux.HandleFunc("GET /health", g.handleHealth)
 
+	// Dashboard
+	mux.HandleFunc("GET /dashboard", dashboardHandler)
+
 	// Workers
 	mux.HandleFunc("POST /api/v1/workers/register", g.handleRegisterWorker)
 	mux.HandleFunc("POST /api/v1/workers/heartbeat", g.handleHeartbeat)
