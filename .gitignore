@@ -1,6 +1,7 @@
 bin/*
 !bin/magic-claw.js
 *.exe
+examples/hello-worker-go/hello-worker-go
 .env
 .env.*
 *.db
