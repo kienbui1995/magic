@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"crypto/subtle"
 	"net/http"
 	"os"
 	"strings"
@@ -113,7 +114,9 @@ func authMiddleware(next http.Handler) http.Handler {
 		if token == "" {
 			token = r.Header.Get("X-API-Key")
 		}
-		if token != "Bearer "+apiKey && token != apiKey {
+		bearerToken := "Bearer " + apiKey
+		if subtle.ConstantTimeCompare([]byte(token), []byte(bearerToken)) != 1 &&
+			subtle.ConstantTimeCompare([]byte(token), []byte(apiKey)) != 1 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte(`{"error": "unauthorized"}`))
@@ -153,10 +156,10 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := os.Getenv("MAGIC_CORS_ORIGIN")
-		if origin == "" {
-			origin = "*"
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
 		}
-		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, X-Request-ID")
 		if r.Method == "OPTIONS" {

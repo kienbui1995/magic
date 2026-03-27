@@ -48,6 +48,11 @@ func runServer() {
 		port = "8080"
 	}
 
+	apiKey := os.Getenv("MAGIC_API_KEY")
+	if apiKey != "" && len(apiKey) < 32 {
+		log.Fatalf("[security] MAGIC_API_KEY must be at least 32 characters (got %d). Generate one with: openssl rand -hex 32", len(apiKey))
+	}
+
 	// Store
 	var s store.Store
 	storePath := os.Getenv("MAGIC_STORE")

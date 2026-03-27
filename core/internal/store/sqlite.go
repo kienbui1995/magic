@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 
 	_ "modernc.org/sqlite"
 
@@ -245,6 +246,10 @@ func (s *SQLiteStore) AddWorkerToken(t *protocol.WorkerToken) error {
 func (s *SQLiteStore) GetWorkerToken(id string) (*protocol.WorkerToken, error) {
 	return getJSON[protocol.WorkerToken](s.db, "worker_tokens", id)
 }
+// GetWorkerTokenByHash looks up a token by its hash.
+// NOTE: Returns token regardless of validity state (expired or revoked).
+// Callers MUST call token.IsValid() before using the token.
+// This allows callers to distinguish "token not found" from "token expired/revoked".
 func (s *SQLiteStore) GetWorkerTokenByHash(hash string) (*protocol.WorkerToken, error) {
 	rows, err := s.db.Query("SELECT data FROM worker_tokens ORDER BY id")
 	if err != nil {
@@ -267,10 +272,39 @@ func (s *SQLiteStore) GetWorkerTokenByHash(hash string) (*protocol.WorkerToken, 
 	return nil, ErrNotFound
 }
 func (s *SQLiteStore) UpdateWorkerToken(t *protocol.WorkerToken) error {
-	if _, err := s.GetWorkerToken(t.ID); err != nil {
+	tx, err := s.db.Begin()
+	if err != nil {
 		return err
 	}
-	return putJSON(s.db, "worker_tokens", t.ID, t)
+	defer tx.Rollback() //nolint:errcheck
+
+	// Read current state inside the transaction for atomic CAS.
+	var data string
+	err = tx.QueryRow("SELECT data FROM worker_tokens WHERE id = ?", t.ID).Scan(&data)
+	if err == sql.ErrNoRows {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	var existing protocol.WorkerToken
+	if err := json.Unmarshal([]byte(data), &existing); err != nil {
+		return err
+	}
+	// CAS: if the token is already bound to a different worker, reject.
+	if existing.WorkerID != "" && t.WorkerID != existing.WorkerID {
+		return fmt.Errorf("token already in use")
+	}
+
+	b, err := json.Marshal(t)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec("INSERT OR REPLACE INTO worker_tokens (id, data) VALUES (?, ?)", t.ID, string(b))
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 func (s *SQLiteStore) ListWorkerTokensByOrg(orgID string) []*protocol.WorkerToken {
 	all, _ := listJSON[protocol.WorkerToken](s.db, "worker_tokens")

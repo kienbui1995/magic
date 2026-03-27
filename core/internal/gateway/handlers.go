@@ -71,11 +71,11 @@ func (g *Gateway) handleRegisterWorker(w http.ResponseWriter, r *http.Request) {
 		msg := err.Error()
 		switch {
 		case strings.Contains(msg, "token already in use"):
-			writeError(w, http.StatusConflict, msg)
+			writeError(w, http.StatusConflict, "token already in use")
 		case strings.Contains(msg, "token"):
-			writeError(w, http.StatusUnauthorized, msg)
+			writeError(w, http.StatusUnauthorized, "invalid worker token")
 		default:
-			writeError(w, http.StatusInternalServerError, msg)
+			writeError(w, http.StatusInternalServerError, "registration failed")
 		}
 		return
 	}
@@ -109,11 +109,11 @@ func (g *Gateway) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		msg := err.Error()
 		switch {
 		case strings.Contains(msg, "not authorized"):
-			writeError(w, http.StatusForbidden, msg)
+			writeError(w, http.StatusForbidden, "token not authorized for this worker")
 		case strings.Contains(msg, "token"):
-			writeError(w, http.StatusUnauthorized, msg)
+			writeError(w, http.StatusUnauthorized, "invalid worker token")
 		default:
-			writeError(w, http.StatusNotFound, msg)
+			writeError(w, http.StatusNotFound, "worker not found")
 		}
 		return
 	}
@@ -325,6 +325,15 @@ func (g *Gateway) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 	var req createTokenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if len(req.Name) == 0 || len(req.Name) > 255 {
+		writeError(w, http.StatusBadRequest, "token name must be 1-255 characters")
+		return
+	}
+	if req.ExpiresInHours < 0 {
+		writeError(w, http.StatusBadRequest, "expires_in_hours must be non-negative")
 		return
 	}
 

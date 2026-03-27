@@ -8,6 +8,9 @@ import (
 	"github.com/kienbui1995/magic/core/internal/protocol"
 )
 
+// maxAuditEntries caps the in-memory audit log to prevent unbounded growth (DoS via memory exhaustion).
+const maxAuditEntries = 10_000
+
 // MemoryStore is an in-memory implementation of the Store interface.
 // All methods use deep copies to prevent external mutations.
 type MemoryStore struct {
@@ -414,6 +417,10 @@ func (s *MemoryStore) AppendAudit(e *protocol.AuditEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.auditLog = append(s.auditLog, deepCopyAuditEntry(e))
+	if len(s.auditLog) > maxAuditEntries {
+		// Drop oldest entries, keep newest maxAuditEntries.
+		s.auditLog = s.auditLog[len(s.auditLog)-maxAuditEntries:]
+	}
 	return nil
 }
 
