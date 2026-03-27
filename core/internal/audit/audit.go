@@ -40,6 +40,7 @@ func (l *Logger) Record(orgID, workerID, action, resource, requestID, outcome st
 		Source:   "audit",
 		Severity: severityForOutcome(outcome),
 		Payload: map[string]any{
+			"audit_id":   entry.ID,
 			"org_id":     orgID,
 			"worker_id":  workerID,
 			"action":     action,
@@ -113,6 +114,18 @@ func (l *Logger) SubscribeToEvents() {
 			"task/"+strVal(e.Payload, "task_id"),
 			strVal(e.Payload, "request_id"),
 			"error",
+			e.Payload,
+		)
+	})
+
+	l.bus.Subscribe("worker.heartbeat", func(e events.Event) {
+		l.Record(
+			strVal(e.Payload, "org_id"),
+			strVal(e.Payload, "worker_id"),
+			"worker.heartbeat",
+			"worker/"+strVal(e.Payload, "worker_id"),
+			strVal(e.Payload, "request_id"),
+			"success",
 			e.Payload,
 		)
 	})

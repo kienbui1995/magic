@@ -143,11 +143,20 @@ class AsyncMagiCClient:
     async def register_worker(self, payload: dict) -> dict:
         return (await self._client.post("/api/v1/workers/register", json=payload)).raise_for_status().json()
 
+    async def heartbeat(self, worker_id: str, current_load: int = 0, worker_token: str = "") -> dict:
+        payload = {"worker_id": worker_id, "current_load": current_load, "status": "active"}
+        if worker_token:
+            payload["worker_token"] = worker_token
+        return (await self._client.post("/api/v1/workers/heartbeat", json=payload)).raise_for_status().json()
+
     async def list_workers(self, limit: int = 100, offset: int = 0) -> list[dict]:
         return (await self._client.get("/api/v1/workers", params={"limit": limit, "offset": offset})).raise_for_status().json()
 
     async def get_worker(self, worker_id: str) -> dict:
         return (await self._client.get(f"/api/v1/workers/{worker_id}")).raise_for_status().json()
+
+    async def delete_worker(self, worker_id: str) -> dict:
+        return (await self._client.delete(f"/api/v1/workers/{worker_id}")).raise_for_status().json()
 
     # Tasks
     async def submit_task(self, task: dict) -> dict:

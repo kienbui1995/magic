@@ -125,12 +125,33 @@ func (r *Registry) Heartbeat(p protocol.HeartbeatPayload) error {
 		hash := protocol.HashToken(p.WorkerToken)
 		token, err := r.store.GetWorkerTokenByHash(hash)
 		if err != nil {
+			r.store.AppendAudit(&protocol.AuditEntry{
+				ID:       protocol.GenerateID("audit"),
+				WorkerID: p.WorkerID,
+				Action:   "worker.heartbeat",
+				Resource: "worker:" + p.WorkerID,
+				Outcome:  "denied",
+			})
 			return fmt.Errorf("invalid worker token")
 		}
 		if !token.IsValid() {
+			r.store.AppendAudit(&protocol.AuditEntry{
+				ID:       protocol.GenerateID("audit"),
+				WorkerID: p.WorkerID,
+				Action:   "worker.heartbeat",
+				Resource: "worker:" + p.WorkerID,
+				Outcome:  "denied",
+			})
 			return fmt.Errorf("token expired or revoked")
 		}
 		if token.WorkerID != p.WorkerID {
+			r.store.AppendAudit(&protocol.AuditEntry{
+				ID:       protocol.GenerateID("audit"),
+				WorkerID: p.WorkerID,
+				Action:   "worker.heartbeat",
+				Resource: "worker:" + p.WorkerID,
+				Outcome:  "denied",
+			})
 			return fmt.Errorf("token not authorized for this worker")
 		}
 	}
@@ -145,7 +166,19 @@ func (r *Registry) Heartbeat(p protocol.HeartbeatPayload) error {
 	if p.Status != "" && w.Status != protocol.StatusPaused {
 		w.Status = p.Status
 	}
-	return r.store.UpdateWorker(w)
+	if err := r.store.UpdateWorker(w); err != nil {
+		return err
+	}
+
+	r.bus.Publish(events.Event{
+		Type:   "worker.heartbeat",
+		Source: "registry",
+		Payload: map[string]any{
+			"worker_id": p.WorkerID,
+		},
+	})
+
+	return nil
 }
 
 func (r *Registry) GetWorker(id string) (*protocol.Worker, error) {

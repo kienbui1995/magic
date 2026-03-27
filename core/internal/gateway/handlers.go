@@ -459,6 +459,14 @@ func (g *Gateway) handleQueryAudit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Get total count (no pagination)
+	countFilter := filter
+	countFilter.Limit = 0
+	countFilter.Offset = 0
+	allEntries := g.deps.Store.QueryAudit(countFilter)
+	total := len(allEntries)
+
+	// Get paginated page
 	entries := g.deps.Store.QueryAudit(filter)
 	if entries == nil {
 		entries = []*protocol.AuditEntry{}
@@ -466,7 +474,7 @@ func (g *Gateway) handleQueryAudit(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"entries": entries,
-		"total":   len(entries),
+		"total":   total,
 		"limit":   limit,
 		"offset":  offset,
 	})
