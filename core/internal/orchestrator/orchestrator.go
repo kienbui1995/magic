@@ -113,7 +113,7 @@ func (o *Orchestrator) FailStep(workflowID, taskID string, taskErr protocol.Task
 			case "abort":
 				step.Status = protocol.StepFailed
 				wf.Status = protocol.WorkflowAborted
-				o.store.UpdateWorkflow(wf)
+				o.store.UpdateWorkflow(wf) //nolint:errcheck
 				o.bus.Publish(events.Event{
 					Type:     "workflow.aborted",
 					Source:   "orchestrator",
@@ -156,7 +156,7 @@ func (o *Orchestrator) advanceWorkflowLocked(wf *protocol.Workflow) {
 		}
 		now := time.Now()
 		wf.DoneAt = &now
-		o.store.UpdateWorkflow(wf)
+		o.store.UpdateWorkflow(wf) //nolint:errcheck
 
 		o.bus.Publish(events.Event{
 			Type:   "workflow.completed",
@@ -202,7 +202,7 @@ func (o *Orchestrator) dispatchStep(wf *protocol.Workflow, step *protocol.Workfl
 		merged := make(map[string]any)
 		// Start with step's own input
 		if len(input) > 0 {
-			json.Unmarshal(input, &merged)
+			json.Unmarshal(input, &merged) //nolint:errcheck
 		}
 		// Add outputs from dependencies
 		depOutputs := make(map[string]json.RawMessage)

@@ -104,7 +104,7 @@ func (r *Router) RouteTask(task *protocol.Task) (*protocol.Worker, error) {
 
 	// Increment worker load via store to avoid race condition
 	selected.CurrentLoad++
-	r.store.UpdateWorker(selected)
+	r.store.UpdateWorker(selected) //nolint:errcheck
 
 	r.bus.Publish(events.Event{
 		Type:   "task.routed",

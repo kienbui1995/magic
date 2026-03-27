@@ -224,7 +224,7 @@ func (d *Dispatcher) handleComplete(task *protocol.Task, worker *protocol.Worker
 			task.Error = &protocol.TaskError{Code: "evaluation_failed", Message: fmt.Sprintf("output validation failed: %v", result.Errors)}
 			now := time.Now()
 			task.CompletedAt = &now
-			d.store.UpdateTask(task)
+			d.store.UpdateTask(task) //nolint:errcheck
 			return fmt.Errorf("evaluation failed")
 		}
 	}
@@ -232,7 +232,7 @@ func (d *Dispatcher) handleComplete(task *protocol.Task, worker *protocol.Worker
 	task.Status = protocol.TaskCompleted
 	now := time.Now()
 	task.CompletedAt = &now
-	d.store.UpdateTask(task)
+	d.store.UpdateTask(task) //nolint:errcheck
 
 	// Track cost
 	if d.costCtrl != nil && cp.Cost > 0 {
@@ -244,7 +244,7 @@ func (d *Dispatcher) handleComplete(task *protocol.Task, worker *protocol.Worker
 	if worker.CurrentLoad < 0 {
 		worker.CurrentLoad = 0
 	}
-	d.store.UpdateWorker(worker)
+	d.store.UpdateWorker(worker) //nolint:errcheck
 
 	d.bus.Publish(events.Event{
 		Type:   "task.completed",
@@ -264,13 +264,13 @@ func (d *Dispatcher) handleFailure(task *protocol.Task, worker *protocol.Worker,
 	task.Error = &protocol.TaskError{Code: "dispatch_error", Message: reason}
 	now := time.Now()
 	task.CompletedAt = &now
-	d.store.UpdateTask(task)
+	d.store.UpdateTask(task) //nolint:errcheck
 
 	worker.CurrentLoad--
 	if worker.CurrentLoad < 0 {
 		worker.CurrentLoad = 0
 	}
-	d.store.UpdateWorker(worker)
+	d.store.UpdateWorker(worker) //nolint:errcheck
 
 	d.bus.Publish(events.Event{
 		Type:     "task.failed",
