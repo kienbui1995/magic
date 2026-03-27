@@ -26,14 +26,18 @@ class MagiCClient:
         return self._client.get("/health").raise_for_status().json()
 
     # Workers
-    def register_worker(self, payload: dict) -> dict:
-        return self._client.post("/api/v1/workers/register", json=payload).raise_for_status().json()
+    def register_worker(self, payload: dict, worker_token: str = "") -> dict:
+        headers = {}
+        if worker_token:
+            headers["Authorization"] = f"Bearer {worker_token}"
+        return self._client.post("/api/v1/workers/register", json=payload, headers=headers).raise_for_status().json()
 
     def heartbeat(self, worker_id: str, current_load: int = 0, worker_token: str = "") -> dict:
         payload = {"worker_id": worker_id, "current_load": current_load, "status": "active"}
+        headers = {}
         if worker_token:
-            payload["worker_token"] = worker_token
-        return self._client.post("/api/v1/workers/heartbeat", json=payload).raise_for_status().json()
+            headers["Authorization"] = f"Bearer {worker_token}"
+        return self._client.post("/api/v1/workers/heartbeat", json=payload, headers=headers).raise_for_status().json()
 
     def list_workers(self, limit: int = 100, offset: int = 0) -> list[dict]:
         return self._client.get("/api/v1/workers", params={"limit": limit, "offset": offset}).raise_for_status().json()
@@ -140,14 +144,18 @@ class AsyncMagiCClient:
         return (await self._client.get("/health")).raise_for_status().json()
 
     # Workers
-    async def register_worker(self, payload: dict) -> dict:
-        return (await self._client.post("/api/v1/workers/register", json=payload)).raise_for_status().json()
+    async def register_worker(self, payload: dict, worker_token: str = "") -> dict:
+        headers = {}
+        if worker_token:
+            headers["Authorization"] = f"Bearer {worker_token}"
+        return (await self._client.post("/api/v1/workers/register", json=payload, headers=headers)).raise_for_status().json()
 
     async def heartbeat(self, worker_id: str, current_load: int = 0, worker_token: str = "") -> dict:
         payload = {"worker_id": worker_id, "current_load": current_load, "status": "active"}
+        headers = {}
         if worker_token:
-            payload["worker_token"] = worker_token
-        return (await self._client.post("/api/v1/workers/heartbeat", json=payload)).raise_for_status().json()
+            headers["Authorization"] = f"Bearer {worker_token}"
+        return (await self._client.post("/api/v1/workers/heartbeat", json=payload, headers=headers)).raise_for_status().json()
 
     async def list_workers(self, limit: int = 100, offset: int = 0) -> list[dict]:
         return (await self._client.get("/api/v1/workers", params={"limit": limit, "offset": offset})).raise_for_status().json()

@@ -51,8 +51,8 @@ def test_worker_without_token():
     assert w._worker_token == ""
 
 
-def test_worker_token_in_register_payload():
-    """When token is set, register payload includes worker_token."""
+def test_worker_token_sent_as_header_not_body():
+    """When token is set, register sends it as Authorization header, not in payload body."""
     import unittest.mock as mock
 
     w = Worker(name="TestBot", worker_token="mct_abc123")
@@ -63,8 +63,9 @@ def test_worker_token_in_register_payload():
 
     captured = {}
 
-    def fake_register_worker(payload):
+    def fake_register_worker(payload, worker_token=""):
         captured["payload"] = payload
+        captured["worker_token"] = worker_token
         return {"id": "worker-1"}
 
     with mock.patch("magic_ai_sdk.worker.MagiCClient") as MockClient:
@@ -72,12 +73,12 @@ def test_worker_token_in_register_payload():
         instance.register_worker.side_effect = fake_register_worker
         w.register("http://localhost:8080")
 
-    assert "worker_token" in captured["payload"]
-    assert captured["payload"]["worker_token"] == "mct_abc123"
+    assert "worker_token" not in captured["payload"]
+    assert captured["worker_token"] == "mct_abc123"
 
 
-def test_worker_no_token_in_register_payload():
-    """When token is empty, worker_token is NOT in payload (backward compat)."""
+def test_worker_no_token_register_payload_clean():
+    """When token is empty, worker_token is not passed to register at all."""
     import unittest.mock as mock
 
     w = Worker(name="TestBot")
@@ -88,8 +89,9 @@ def test_worker_no_token_in_register_payload():
 
     captured = {}
 
-    def fake_register_worker(payload):
+    def fake_register_worker(payload, worker_token=""):
         captured["payload"] = payload
+        captured["worker_token"] = worker_token
         return {"id": "worker-1"}
 
     with mock.patch("magic_ai_sdk.worker.MagiCClient") as MockClient:
@@ -98,3 +100,4 @@ def test_worker_no_token_in_register_payload():
         w.register("http://localhost:8080")
 
     assert "worker_token" not in captured["payload"]
+    assert captured["worker_token"] == ""

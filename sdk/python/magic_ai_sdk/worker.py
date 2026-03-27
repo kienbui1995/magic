@@ -47,9 +47,7 @@ class Worker:
             "endpoint": {"type": "http", "url": self.endpoint},
             "limits": {"max_concurrent_tasks": self.max_workers},
         }
-        if self._worker_token:
-            payload["worker_token"] = self._worker_token
-        result = self._client.register_worker(payload)
+        result = self._client.register_worker(payload, worker_token=self._worker_token)
         self._worker_id = result.get("id")
         logger.info("Registered as %s", self._worker_id)
         return self

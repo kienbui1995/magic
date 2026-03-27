@@ -37,22 +37,70 @@ def _binary_path(version: str = "latest") -> Path:
     return CACHE_DIR / version / name
 
 
+def _verify_checksum(content: bytes, binary_name: str, checksums_text: str) -> None:
+    """Verify SHA256 checksum of downloaded binary content."""
+    import hashlib
+    actual = hashlib.sha256(content).hexdigest()
+    for line in checksums_text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) == 2 and parts[1] == binary_name:
+            expected = parts[0]
+            if actual != expected:
+                raise RuntimeError(
+                    f"Checksum mismatch for {binary_name}!\n"
+                    f"  expected: {expected}\n"
+                    f"  actual:   {actual}\n"
+                    f"The downloaded binary may be corrupted or tampered with."
+                )
+            return
+    # Binary name not found in checksums file — warn
+    import warnings
+    warnings.warn(
+        f"Binary '{binary_name}' not found in checksums.sha256. Cannot verify integrity.",
+        UserWarning,
+        stacklevel=3,
+    )
+
+
 def _download_binary(version: str = "latest") -> Path:
     name = _detect_platform()
     dest = _binary_path(version)
     dest.parent.mkdir(parents=True, exist_ok=True)
 
     if version == "latest":
-        url = f"https://github.com/{REPO}/releases/latest/download/{name}"
+        base_url = f"https://github.com/{REPO}/releases/latest/download"
     else:
-        url = f"https://github.com/{REPO}/releases/download/{version}/{name}"
+        base_url = f"https://github.com/{REPO}/releases/download/{version}"
 
-    print(f"Downloading MagiC binary from {url} ...")
+    binary_url = f"{base_url}/{name}"
+    checksum_url = f"{base_url}/checksums.sha256"
+
+    print(f"Downloading MagiC binary from {binary_url} ...")
     with httpx.Client(follow_redirects=True, timeout=60) as client:
-        response = client.get(url)
+        # Download binary
+        response = client.get(binary_url)
         response.raise_for_status()
-        dest.write_bytes(response.content)
+        content = response.content
 
+        # Download and verify checksum
+        try:
+            cs_response = client.get(checksum_url)
+            cs_response.raise_for_status()
+            _verify_checksum(content, name, cs_response.text)
+        except httpx.HTTPStatusError:
+            # Checksums file not available (e.g., old release) — warn but continue
+            import warnings
+            warnings.warn(
+                f"Could not verify checksum for MagiC binary (checksums.sha256 not found). "
+                f"Verify manually: https://github.com/{REPO}/releases",
+                UserWarning,
+                stacklevel=2,
+            )
+
+    dest.write_bytes(content)
     dest.chmod(dest.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     return dest
 
