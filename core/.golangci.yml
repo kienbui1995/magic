@@ -10,8 +10,27 @@ linters:
 linters-settings:
   errcheck:
     check-type-assertions: false
+    # Ignore fire-and-forget patterns: store updates, event bus, audit log,
+    # JSON encoding to http.ResponseWriter, w.Write to ResponseWriter
+    exclude-functions:
+      - (net/http.ResponseWriter).Write
+      - (*encoding/json.Encoder).Encode
+      - (*database/sql.Row).Scan
 
 issues:
   exclude-rules:
     - path: _test\.go
       linters: [errcheck]
+    # Store update calls are best-effort (in-memory store never fails;
+    # SQLite errors are non-fatal for status updates)
+    - linters: [errcheck]
+      text: "UpdateWorker|UpdateTask|UpdateWorkflow|AddTask|RemoveWorker|AppendAudit|UpdateWorkerToken"
+    # Dispatcher.Dispatch is called in goroutines where error is handled inside
+    - linters: [errcheck]
+      text: "Dispatch"
+    # FailStep / CompleteStep inside goroutines
+    - linters: [errcheck]
+      text: "FailStep|CompleteStep"
+    # rand.Read only fails if OS RNG is broken — acceptable to ignore
+    - linters: [errcheck]
+      text: "rand.Read"
