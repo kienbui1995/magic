@@ -29,10 +29,11 @@ class MagiCClient:
     def register_worker(self, payload: dict) -> dict:
         return self._client.post("/api/v1/workers/register", json=payload).raise_for_status().json()
 
-    def heartbeat(self, worker_id: str, current_load: int = 0) -> dict:
-        return self._client.post("/api/v1/workers/heartbeat", json={
-            "worker_id": worker_id, "current_load": current_load, "status": "active",
-        }).raise_for_status().json()
+    def heartbeat(self, worker_id: str, current_load: int = 0, worker_token: str = "") -> dict:
+        payload = {"worker_id": worker_id, "current_load": current_load, "status": "active"}
+        if worker_token:
+            payload["worker_token"] = worker_token
+        return self._client.post("/api/v1/workers/heartbeat", json=payload).raise_for_status().json()
 
     def list_workers(self, limit: int = 100, offset: int = 0) -> list[dict]:
         return self._client.get("/api/v1/workers", params={"limit": limit, "offset": offset}).raise_for_status().json()
@@ -91,6 +92,28 @@ class MagiCClient:
     def search_knowledge(self, query: str = "") -> list[dict]:
         params = {"q": query} if query else {}
         return self._client.get("/api/v1/knowledge", params=params).raise_for_status().json()
+
+    # Worker Tokens
+    def create_worker_token(self, org_id: str, name: str, expires_in_hours: int = 0) -> dict:
+        """Create a worker token. Returns dict with 'token' field (raw mct_ value)."""
+        resp = self._client.post(
+            f"/api/v1/orgs/{org_id}/tokens",
+            json={"name": name, "expires_in_hours": expires_in_hours},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def revoke_worker_token(self, org_id: str, token_id: str) -> dict:
+        """Revoke a worker token by ID."""
+        resp = self._client.delete(f"/api/v1/orgs/{org_id}/tokens/{token_id}")
+        resp.raise_for_status()
+        return resp.json()
+
+    def list_worker_tokens(self, org_id: str) -> list:
+        """List all tokens for an org (without raw values)."""
+        resp = self._client.get(f"/api/v1/orgs/{org_id}/tokens")
+        resp.raise_for_status()
+        return resp.json()
 
 
 class AsyncMagiCClient:
@@ -152,3 +175,25 @@ class AsyncMagiCClient:
 
     async def get_metrics(self) -> dict:
         return (await self._client.get("/api/v1/metrics")).raise_for_status().json()
+
+    # Worker Tokens
+    async def create_worker_token(self, org_id: str, name: str, expires_in_hours: int = 0) -> dict:
+        """Create a worker token. Returns dict with 'token' field (raw mct_ value)."""
+        resp = await self._client.post(
+            f"/api/v1/orgs/{org_id}/tokens",
+            json={"name": name, "expires_in_hours": expires_in_hours},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def revoke_worker_token(self, org_id: str, token_id: str) -> dict:
+        """Revoke a worker token by ID."""
+        resp = await self._client.delete(f"/api/v1/orgs/{org_id}/tokens/{token_id}")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def list_worker_tokens(self, org_id: str) -> list:
+        """List all tokens for an org (without raw values)."""
+        resp = await self._client.get(f"/api/v1/orgs/{org_id}/tokens")
+        resp.raise_for_status()
+        return resp.json()

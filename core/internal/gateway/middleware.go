@@ -1,11 +1,74 @@
 package gateway
 
 import (
+	"context"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/kienbui1995/magic/core/internal/protocol"
+	"github.com/kienbui1995/magic/core/internal/store"
 )
+
+// contextKey is the type for context keys in this package.
+type contextKey string
+
+const ctxKeyWorkerToken contextKey = "worker_token"
+
+// TokenFromContext retrieves the validated WorkerToken from the request context.
+// Returns nil if not present.
+func TokenFromContext(ctx context.Context) *protocol.WorkerToken {
+	v := ctx.Value(ctxKeyWorkerToken)
+	if v == nil {
+		return nil
+	}
+	t, _ := v.(*protocol.WorkerToken)
+	return t
+}
+
+// extractBearerToken extracts the raw token value from "Authorization: Bearer <token>" header.
+// Returns empty string if the header is missing or malformed.
+func extractBearerToken(r *http.Request) string {
+	h := r.Header.Get("Authorization")
+	if h == "" {
+		return ""
+	}
+	parts := strings.SplitN(h, " ", 2)
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		return ""
+	}
+	return strings.TrimSpace(parts[1])
+}
+
+// workerAuthMiddleware validates mct_ tokens for worker lifecycle endpoints.
+// In dev mode (no tokens stored), all requests pass through without auth.
+func workerAuthMiddleware(s store.Store) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Dev mode: no tokens configured, allow all
+			if !s.HasAnyWorkerTokens() {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			raw := extractBearerToken(r)
+			if raw == "" {
+				writeError(w, http.StatusUnauthorized, "worker token required")
+				return
+			}
+
+			hash := protocol.HashToken(raw)
+			token, err := s.GetWorkerTokenByHash(hash)
+			if err != nil || !token.IsValid() {
+				writeError(w, http.StatusUnauthorized, "invalid or revoked token")
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), ctxKeyWorkerToken, token)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
 
 const maxBodySize = 1 << 20 // 1 MB
 

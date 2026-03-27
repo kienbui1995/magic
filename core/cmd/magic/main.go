@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kienbui1995/magic/core/internal/audit"
 	"github.com/kienbui1995/magic/core/internal/costctrl"
 	"github.com/kienbui1995/magic/core/internal/dispatcher"
 	"github.com/kienbui1995/magic/core/internal/evaluator"
@@ -75,6 +76,10 @@ func runServer() {
 	orch := orchestrator.New(s, rt, bus, disp)
 	mgr := orgmgr.New(s, bus)
 	kb := knowledge.New(s, bus)
+
+	// Audit logger — subscribes to events and records them
+	auditLogger := audit.New(s, bus)
+	auditLogger.SubscribeToEvents()
 
 	gw := gateway.New(gateway.Deps{
 		Registry:     reg,

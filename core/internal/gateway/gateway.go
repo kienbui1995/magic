@@ -50,9 +50,10 @@ func (g *Gateway) Handler() http.Handler {
 	// Dashboard
 	mux.HandleFunc("GET /dashboard", dashboardHandler)
 
-	// Workers
-	mux.HandleFunc("POST /api/v1/workers/register", g.handleRegisterWorker)
-	mux.HandleFunc("POST /api/v1/workers/heartbeat", g.handleHeartbeat)
+	// Workers (protected by workerAuthMiddleware)
+	workerAuth := workerAuthMiddleware(g.deps.Store)
+	mux.Handle("POST /api/v1/workers/register", workerAuth(http.HandlerFunc(g.handleRegisterWorker)))
+	mux.Handle("POST /api/v1/workers/heartbeat", workerAuth(http.HandlerFunc(g.handleHeartbeat)))
 	mux.HandleFunc("GET /api/v1/workers", g.handleListWorkers)
 	mux.HandleFunc("GET /api/v1/workers/{id}", g.handleGetWorker)
 	mux.HandleFunc("DELETE /api/v1/workers/{id}", g.handleDeregisterWorker)
@@ -82,6 +83,14 @@ func (g *Gateway) Handler() http.Handler {
 	// Knowledge
 	mux.HandleFunc("POST /api/v1/knowledge", g.handleAddKnowledge)
 	mux.HandleFunc("GET /api/v1/knowledge", g.handleSearchKnowledge)
+
+	// Token management (admin auth — MAGIC_API_KEY)
+	mux.HandleFunc("POST /api/v1/orgs/{orgID}/tokens", g.handleCreateToken)
+	mux.HandleFunc("GET /api/v1/orgs/{orgID}/tokens", g.handleListTokens)
+	mux.HandleFunc("DELETE /api/v1/orgs/{orgID}/tokens/{tokenID}", g.handleRevokeToken)
+
+	// Audit log (admin auth — MAGIC_API_KEY)
+	mux.HandleFunc("GET /api/v1/orgs/{orgID}/audit", g.handleQueryAudit)
 
 	var handler http.Handler = mux
 	handler = requestIDMiddleware(handler)

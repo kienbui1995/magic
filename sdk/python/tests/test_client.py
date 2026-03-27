@@ -23,3 +23,21 @@ def test_exports():
     assert MagiCClient is not None
     assert AsyncMagiCClient is not None
     assert callable(capability)
+
+
+def test_create_worker_token_method_exists():
+    c = MagiCClient("http://localhost:8080")
+    assert hasattr(c, "create_worker_token")
+    assert callable(c.create_worker_token)
+
+
+def test_revoke_worker_token_method_exists():
+    c = MagiCClient("http://localhost:8080")
+    assert hasattr(c, "revoke_worker_token")
+    assert callable(c.revoke_worker_token)
+
+
+def test_list_worker_tokens_method_exists():
+    c = MagiCClient("http://localhost:8080")
+    assert hasattr(c, "list_worker_tokens")
+    assert callable(c.list_worker_tokens)

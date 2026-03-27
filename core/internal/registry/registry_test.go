@@ -2,12 +2,30 @@ package registry_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/kienbui1995/magic/core/internal/events"
 	"github.com/kienbui1995/magic/core/internal/protocol"
 	"github.com/kienbui1995/magic/core/internal/registry"
 	"github.com/kienbui1995/magic/core/internal/store"
 )
+
+// addToken is a helper that creates a WorkerToken in the store and returns the raw token string.
+func addToken(t *testing.T, s store.Store, orgID string) (rawToken string, tok *protocol.WorkerToken) {
+	t.Helper()
+	raw, hash := protocol.GenerateToken()
+	tok = &protocol.WorkerToken{
+		ID:        protocol.GenerateID("token"),
+		OrgID:     orgID,
+		TokenHash: hash,
+		Name:      "test-token",
+		CreatedAt: time.Now(),
+	}
+	if err := s.AddWorkerToken(tok); err != nil {
+		t.Fatalf("AddWorkerToken: %v", err)
+	}
+	return raw, tok
+}
 
 func TestRegistry_Register(t *testing.T) {
 	s := store.NewMemoryStore()
@@ -147,5 +165,291 @@ func TestRegistry_FindByCapability(t *testing.T) {
 	}
 	if writers[0].Name != "ContentBot" {
 		t.Errorf("Name: got %q", writers[0].Name)
+	}
+}
+
+// --- Token authentication tests ---
+
+func TestRegister_ValidToken(t *testing.T) {
+	s := store.NewMemoryStore()
+	bus := events.NewBus()
+	reg := registry.New(s, bus)
+
+	rawToken, _ := addToken(t, s, "org_acme")
+
+	worker, err := reg.Register(protocol.RegisterPayload{
+		WorkerToken: rawToken,
+		Name:        "ContentBot",
+		Endpoint:    protocol.Endpoint{Type: "http", URL: "http://localhost:9001"},
+	})
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if worker.ID == "" {
+		t.Error("worker ID should not be empty")
+	}
+	if worker.OrgID != "org_acme" {
+		t.Errorf("OrgID: got %q, want org_acme", worker.OrgID)
+	}
+}
+
+func TestRegister_NoToken_DevMode(t *testing.T) {
+	// No tokens in store → dev mode → registration allowed without token
+	s := store.NewMemoryStore()
+	bus := events.NewBus()
+	reg := registry.New(s, bus)
+
+	worker, err := reg.Register(protocol.RegisterPayload{
+		Name:     "AnonBot",
+		Endpoint: protocol.Endpoint{Type: "http", URL: "http://localhost:9001"},
+	})
+	if err != nil {
+		t.Fatalf("Register in dev mode: %v", err)
+	}
+	if worker.ID == "" {
+		t.Error("worker ID should not be empty")
+	}
+	if worker.OrgID != "" {
+		t.Errorf("OrgID should be empty in dev mode, got %q", worker.OrgID)
+	}
+}
+
+func TestRegister_NoToken_SecurityMode(t *testing.T) {
+	// Tokens exist in store but no token in payload → error
+	s := store.NewMemoryStore()
+	bus := events.NewBus()
+	reg := registry.New(s, bus)
+
+	addToken(t, s, "org_acme") // activates security mode
+
+	_, err := reg.Register(protocol.RegisterPayload{
+		Name:     "AnonBot",
+		Endpoint: protocol.Endpoint{Type: "http", URL: "http://localhost:9001"},
+	})
+	if err == nil {
+		t.Fatal("expected error when no token provided in security mode, got nil")
+	}
+}
+
+func TestRegister_InvalidToken(t *testing.T) {
+	s := store.NewMemoryStore()
+	bus := events.NewBus()
+	reg := registry.New(s, bus)
+
+	addToken(t, s, "org_acme") // activates security mode
+
+	_, err := reg.Register(protocol.RegisterPayload{
+		WorkerToken: "mct_thisiswrongtokenvalue0000000000000000000000000000000000000000",
+		Name:        "BadBot",
+		Endpoint:    protocol.Endpoint{Type: "http", URL: "http://localhost:9001"},
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid token, got nil")
+	}
+}
+
+func TestRegister_RevokedToken(t *testing.T) {
+	s := store.NewMemoryStore()
+	bus := events.NewBus()
+	reg := registry.New(s, bus)
+
+	rawToken, tok := addToken(t, s, "org_acme")
+
+	// Revoke the token
+	now := time.Now()
+	tok.RevokedAt = &now
+	if err := s.UpdateWorkerToken(tok); err != nil {
+		t.Fatalf("UpdateWorkerToken: %v", err)
+	}
+
+	_, err := reg.Register(protocol.RegisterPayload{
+		WorkerToken: rawToken,
+		Name:        "RevokedBot",
+		Endpoint:    protocol.Endpoint{Type: "http", URL: "http://localhost:9001"},
+	})
+	if err == nil {
+		t.Fatal("expected error for revoked token, got nil")
+	}
+}
+
+func TestRegister_AlreadyBoundToken(t *testing.T) {
+	s := store.NewMemoryStore()
+	bus := events.NewBus()
+	reg := registry.New(s, bus)
+
+	rawToken, tok := addToken(t, s, "org_acme")
+
+	// Bind the token to an existing worker ID
+	tok.WorkerID = protocol.GenerateID("worker")
+	if err := s.UpdateWorkerToken(tok); err != nil {
+		t.Fatalf("UpdateWorkerToken: %v", err)
+	}
+
+	_, err := reg.Register(protocol.RegisterPayload{
+		WorkerToken: rawToken,
+		Name:        "NewBot",
+		Endpoint:    protocol.Endpoint{Type: "http", URL: "http://localhost:9001"},
+	})
+	if err == nil {
+		t.Fatal("expected error for already-bound token, got nil")
+	}
+}
+
+func TestRegister_SetsOrgID(t *testing.T) {
+	s := store.NewMemoryStore()
+	bus := events.NewBus()
+	reg := registry.New(s, bus)
+
+	rawToken, _ := addToken(t, s, "org_beta")
+
+	worker, err := reg.Register(protocol.RegisterPayload{
+		WorkerToken: rawToken,
+		Name:        "BetaBot",
+		Endpoint:    protocol.Endpoint{Type: "http", URL: "http://localhost:9001"},
+	})
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	// Verify OrgID is set correctly both on the returned worker and in the store
+	if worker.OrgID != "org_beta" {
+		t.Errorf("returned worker OrgID: got %q, want org_beta", worker.OrgID)
+	}
+	stored, err := s.GetWorker(worker.ID)
+	if err != nil {
+		t.Fatalf("GetWorker: %v", err)
+	}
+	if stored.OrgID != "org_beta" {
+		t.Errorf("stored worker OrgID: got %q, want org_beta", stored.OrgID)
+	}
+}
+
+func TestHeartbeat_ValidToken(t *testing.T) {
+	s := store.NewMemoryStore()
+	bus := events.NewBus()
+	reg := registry.New(s, bus)
+
+	rawToken, _ := addToken(t, s, "org_acme")
+
+	// Register a worker using the token
+	worker, err := reg.Register(protocol.RegisterPayload{
+		WorkerToken: rawToken,
+		Name:        "HBBot",
+		Endpoint:    protocol.Endpoint{Type: "http", URL: "http://localhost:9001"},
+	})
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	err = reg.Heartbeat(protocol.HeartbeatPayload{
+		WorkerToken: rawToken,
+		WorkerID:    worker.ID,
+		CurrentLoad: 1,
+		Status:      protocol.StatusActive,
+	})
+	if err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+
+	got, _ := s.GetWorker(worker.ID)
+	if got.CurrentLoad != 1 {
+		t.Errorf("CurrentLoad: got %d, want 1", got.CurrentLoad)
+	}
+}
+
+func TestHeartbeat_WrongWorkerID(t *testing.T) {
+	s := store.NewMemoryStore()
+	bus := events.NewBus()
+	reg := registry.New(s, bus)
+
+	rawToken, _ := addToken(t, s, "org_acme")
+
+	// Register worker — binds the token to this worker
+	worker, err := reg.Register(protocol.RegisterPayload{
+		WorkerToken: rawToken,
+		Name:        "HBBot",
+		Endpoint:    protocol.Endpoint{Type: "http", URL: "http://localhost:9001"},
+	})
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	// Heartbeat with a different worker ID — should fail
+	otherWorkerID := protocol.GenerateID("worker")
+	_ = worker // suppress unused warning
+	err = reg.Heartbeat(protocol.HeartbeatPayload{
+		WorkerToken: rawToken,
+		WorkerID:    otherWorkerID,
+		CurrentLoad: 0,
+		Status:      protocol.StatusActive,
+	})
+	if err == nil {
+		t.Fatal("expected error when token bound to different worker, got nil")
+	}
+}
+
+func TestHeartbeat_RevokedToken_SecurityMode(t *testing.T) {
+	s := store.NewMemoryStore()
+	bus := events.NewBus()
+	reg := registry.New(s, bus)
+
+	rawToken, tok := addToken(t, s, "org_acme")
+
+	// Register first to bind the token
+	worker, err := reg.Register(protocol.RegisterPayload{
+		WorkerToken: rawToken,
+		Name:        "HBBot",
+		Endpoint:    protocol.Endpoint{Type: "http", URL: "http://localhost:9001"},
+	})
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	// Revoke the token after registration
+	now := time.Now()
+	tok.RevokedAt = &now
+	tok.WorkerID = worker.ID
+	if err := s.UpdateWorkerToken(tok); err != nil {
+		t.Fatalf("UpdateWorkerToken: %v", err)
+	}
+
+	err = reg.Heartbeat(protocol.HeartbeatPayload{
+		WorkerToken: rawToken,
+		WorkerID:    worker.ID,
+		CurrentLoad: 0,
+		Status:      protocol.StatusActive,
+	})
+	if err == nil {
+		t.Fatal("expected error for revoked token heartbeat, got nil")
+	}
+}
+
+func TestHeartbeat_DevMode(t *testing.T) {
+	// No tokens in store → dev mode → heartbeat without token works
+	s := store.NewMemoryStore()
+	bus := events.NewBus()
+	reg := registry.New(s, bus)
+
+	// Register in dev mode
+	worker, err := reg.Register(protocol.RegisterPayload{
+		Name:     "DevBot",
+		Endpoint: protocol.Endpoint{Type: "http", URL: "http://localhost:9001"},
+	})
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	err = reg.Heartbeat(protocol.HeartbeatPayload{
+		WorkerID:    worker.ID,
+		CurrentLoad: 3,
+		Status:      protocol.StatusActive,
+	})
+	if err != nil {
+		t.Fatalf("Heartbeat in dev mode: %v", err)
+	}
+
+	got, _ := s.GetWorker(worker.ID)
+	if got.CurrentLoad != 3 {
+		t.Errorf("CurrentLoad: got %d, want 3", got.CurrentLoad)
 	}
 }

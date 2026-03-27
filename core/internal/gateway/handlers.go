@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kienbui1995/magic/core/internal/protocol"
+	"github.com/kienbui1995/magic/core/internal/store"
 )
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -286,4 +287,165 @@ func (g *Gateway) handleSearchKnowledge(w http.ResponseWriter, r *http.Request) 
 		entries = g.deps.Knowledge.List()
 	}
 	writeJSON(w, http.StatusOK, paginate(entries, limit, offset))
+}
+
+// createTokenRequest is the body for POST /api/v1/orgs/{orgID}/tokens.
+type createTokenRequest struct {
+	Name           string `json:"name"`
+	ExpiresInHours int    `json:"expires_in_hours"`
+}
+
+// handleCreateToken creates a new worker token for an org.
+// POST /api/v1/orgs/{orgID}/tokens
+func (g *Gateway) handleCreateToken(w http.ResponseWriter, r *http.Request) {
+	orgID := r.PathValue("orgID")
+
+	var req createTokenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	raw, hash := protocol.GenerateToken()
+
+	token := &protocol.WorkerToken{
+		ID:        protocol.GenerateID("token"),
+		OrgID:     orgID,
+		TokenHash: hash,
+		Name:      req.Name,
+		CreatedAt: time.Now(),
+	}
+	if req.ExpiresInHours > 0 {
+		t := time.Now().Add(time.Duration(req.ExpiresInHours) * time.Hour)
+		token.ExpiresAt = &t
+	}
+
+	if err := g.deps.Store.AddWorkerToken(token); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create token")
+		return
+	}
+
+	reqID := w.Header().Get("X-Request-ID")
+	_ = g.deps.Store.AppendAudit(&protocol.AuditEntry{
+		ID:        protocol.GenerateID("audit"),
+		Timestamp: time.Now(),
+		OrgID:     orgID,
+		Action:    "token.create",
+		Resource:  "token/" + token.ID,
+		RequestID: reqID,
+		Outcome:   "success",
+		Detail:    map[string]any{"token_id": token.ID, "name": token.Name},
+	})
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"token":      raw,
+		"id":         token.ID,
+		"org_id":     token.OrgID,
+		"name":       token.Name,
+		"expires_at": token.ExpiresAt,
+		"created_at": token.CreatedAt,
+	})
+}
+
+// handleListTokens lists tokens for an org (without raw values or hashes).
+// GET /api/v1/orgs/{orgID}/tokens
+func (g *Gateway) handleListTokens(w http.ResponseWriter, r *http.Request) {
+	orgID := r.PathValue("orgID")
+	tokens := g.deps.Store.ListWorkerTokensByOrg(orgID)
+	writeJSON(w, http.StatusOK, tokens)
+}
+
+// handleRevokeToken revokes a token by ID.
+// DELETE /api/v1/orgs/{orgID}/tokens/{tokenID}
+func (g *Gateway) handleRevokeToken(w http.ResponseWriter, r *http.Request) {
+	orgID := r.PathValue("orgID")
+	tokenID := r.PathValue("tokenID")
+
+	token, err := g.deps.Store.GetWorkerToken(tokenID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "token not found")
+		return
+	}
+
+	// Security: ensure the token belongs to this org
+	if token.OrgID != orgID {
+		writeError(w, http.StatusForbidden, "token does not belong to this org")
+		return
+	}
+
+	now := time.Now()
+	token.RevokedAt = &now
+	if err := g.deps.Store.UpdateWorkerToken(token); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to revoke token")
+		return
+	}
+
+	reqID := w.Header().Get("X-Request-ID")
+	_ = g.deps.Store.AppendAudit(&protocol.AuditEntry{
+		ID:        protocol.GenerateID("audit"),
+		Timestamp: time.Now(),
+		OrgID:     orgID,
+		Action:    "token.revoke",
+		Resource:  "token/" + tokenID,
+		RequestID: reqID,
+		Outcome:   "success",
+		Detail:    map[string]any{"token_id": tokenID},
+	})
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":     "revoked",
+		"token_id":   tokenID,
+		"revoked_at": now,
+	})
+}
+
+// handleQueryAudit returns audit log entries for an org.
+// GET /api/v1/orgs/{orgID}/audit
+func (g *Gateway) handleQueryAudit(w http.ResponseWriter, r *http.Request) {
+	orgID := r.PathValue("orgID")
+	q := r.URL.Query()
+
+	limit := 100
+	offset := 0
+	if l := q.Get("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 {
+			limit = v
+		}
+	}
+	if o := q.Get("offset"); o != "" {
+		if v, err := strconv.Atoi(o); err == nil && v >= 0 {
+			offset = v
+		}
+	}
+
+	filter := store.AuditFilter{
+		OrgID:    orgID,
+		WorkerID: q.Get("worker_id"),
+		Action:   q.Get("action"),
+		Limit:    limit,
+		Offset:   offset,
+	}
+
+	if s := q.Get("start"); s != "" {
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			filter.StartTime = &t
+		}
+	}
+	if e := q.Get("end"); e != "" {
+		if t, err := time.Parse(time.RFC3339, e); err == nil {
+			filter.EndTime = &t
+		}
+	}
+
+	entries := g.deps.Store.QueryAudit(filter)
+	if entries == nil {
+		entries = []*protocol.AuditEntry{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"entries": entries,
+		"total":   len(entries),
+		"limit":   limit,
+		"offset":  offset,
+	})
 }

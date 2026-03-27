@@ -350,3 +350,206 @@ func TestGateway_SearchKnowledge(t *testing.T) {
 		t.Errorf("search results: got %d, want 1", len(entries))
 	}
 }
+
+// --- Token management tests ---
+
+func TestCreateToken_Success(t *testing.T) {
+	gw := setupGateway()
+	srv := httptest.NewServer(gw.Handler())
+	defer srv.Close()
+
+	body, _ := json.Marshal(map[string]any{"name": "test-token"})
+	resp, err := http.Post(srv.URL+"/api/v1/orgs/org1/tokens", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 201 {
+		t.Errorf("status: got %d, want 201", resp.StatusCode)
+	}
+
+	var result map[string]any
+	json.NewDecoder(resp.Body).Decode(&result)
+
+	rawToken, ok := result["token"].(string)
+	if !ok || rawToken == "" {
+		t.Error("response should contain a non-empty 'token' field")
+	}
+	if len(rawToken) < 4 || rawToken[:4] != "mct_" {
+		t.Errorf("token should start with 'mct_', got %q", rawToken)
+	}
+	if result["id"] == "" {
+		t.Error("response should contain a non-empty 'id' field")
+	}
+}
+
+func TestCreateToken_ListTokens(t *testing.T) {
+	gw := setupGateway()
+	srv := httptest.NewServer(gw.Handler())
+	defer srv.Close()
+
+	// Create a token
+	body, _ := json.Marshal(map[string]any{"name": "my-token"})
+	createResp, _ := http.Post(srv.URL+"/api/v1/orgs/org1/tokens", "application/json", bytes.NewReader(body))
+	var created map[string]any
+	json.NewDecoder(createResp.Body).Decode(&created)
+
+	// List tokens
+	resp, _ := http.Get(srv.URL + "/api/v1/orgs/org1/tokens")
+	if resp.StatusCode != 200 {
+		t.Errorf("list status: got %d, want 200", resp.StatusCode)
+	}
+
+	var tokens []map[string]any
+	json.NewDecoder(resp.Body).Decode(&tokens)
+	if len(tokens) != 1 {
+		t.Fatalf("token count: got %d, want 1", len(tokens))
+	}
+
+	// Verify raw token and hash are not exposed
+	tok := tokens[0]
+	if _, hasRaw := tok["token"]; hasRaw {
+		t.Error("list response should NOT contain raw token")
+	}
+	if _, hasHash := tok["token_hash"]; hasHash {
+		t.Error("list response should NOT contain token_hash")
+	}
+	if tok["name"] != "my-token" {
+		t.Errorf("name: got %q, want 'my-token'", tok["name"])
+	}
+}
+
+func TestRevokeToken_Success(t *testing.T) {
+	gw := setupGateway()
+	srv := httptest.NewServer(gw.Handler())
+	defer srv.Close()
+
+	// Create a token
+	body, _ := json.Marshal(map[string]any{"name": "revoke-me"})
+	createResp, _ := http.Post(srv.URL+"/api/v1/orgs/org1/tokens", "application/json", bytes.NewReader(body))
+	var created map[string]any
+	json.NewDecoder(createResp.Body).Decode(&created)
+	tokenID := created["id"].(string)
+
+	// Revoke it
+	req, _ := http.NewRequest(http.MethodDelete, srv.URL+"/api/v1/orgs/org1/tokens/"+tokenID, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 200 {
+		t.Errorf("revoke status: got %d, want 200", resp.StatusCode)
+	}
+
+	var result map[string]any
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["status"] != "revoked" {
+		t.Errorf("status: got %q, want 'revoked'", result["status"])
+	}
+	if result["token_id"] != tokenID {
+		t.Errorf("token_id: got %q, want %q", result["token_id"], tokenID)
+	}
+}
+
+func TestRevokeToken_WrongOrg(t *testing.T) {
+	gw := setupGateway()
+	srv := httptest.NewServer(gw.Handler())
+	defer srv.Close()
+
+	// Create token for org1
+	body, _ := json.Marshal(map[string]any{"name": "org1-token"})
+	createResp, _ := http.Post(srv.URL+"/api/v1/orgs/org1/tokens", "application/json", bytes.NewReader(body))
+	var created map[string]any
+	json.NewDecoder(createResp.Body).Decode(&created)
+	tokenID := created["id"].(string)
+
+	// Try to revoke from org2
+	req, _ := http.NewRequest(http.MethodDelete, srv.URL+"/api/v1/orgs/org2/tokens/"+tokenID, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 403 && resp.StatusCode != 404 {
+		t.Errorf("wrong-org revoke status: got %d, want 403 or 404", resp.StatusCode)
+	}
+}
+
+func TestQueryAudit_Empty(t *testing.T) {
+	gw := setupGateway()
+	srv := httptest.NewServer(gw.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/v1/orgs/org1/audit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 200 {
+		t.Errorf("status: got %d, want 200", resp.StatusCode)
+	}
+
+	var result map[string]any
+	json.NewDecoder(resp.Body).Decode(&result)
+	entries, ok := result["entries"]
+	if !ok {
+		t.Fatal("response should have 'entries' field")
+	}
+	list, ok := entries.([]any)
+	if !ok {
+		t.Fatalf("'entries' should be a list, got %T", entries)
+	}
+	if len(list) != 0 {
+		t.Errorf("entries count: got %d, want 0", len(list))
+	}
+}
+
+// --- Worker auth middleware tests ---
+
+func TestWorkerAuth_DevMode(t *testing.T) {
+	// Dev mode: no tokens stored, register without auth header should pass
+	gw := setupGateway()
+	srv := httptest.NewServer(gw.Handler())
+	defer srv.Close()
+
+	payload := protocol.RegisterPayload{
+		Name:         "DevBot",
+		Capabilities: []protocol.Capability{{Name: "test"}},
+		Endpoint:     protocol.Endpoint{Type: "http", URL: "http://localhost:9001"},
+		Limits:       protocol.WorkerLimits{MaxConcurrentTasks: 1},
+	}
+	body, _ := json.Marshal(payload)
+	resp, err := http.Post(srv.URL+"/api/v1/workers/register", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Dev mode: no tokens exist, should succeed
+	if resp.StatusCode != 201 {
+		t.Errorf("dev mode register: got %d, want 201", resp.StatusCode)
+	}
+}
+
+func TestWorkerAuth_InvalidToken(t *testing.T) {
+	gw := setupGateway()
+	srv := httptest.NewServer(gw.Handler())
+	defer srv.Close()
+
+	// Add a token so we leave dev mode
+	body, _ := json.Marshal(map[string]any{"name": "gate-token"})
+	http.Post(srv.URL+"/api/v1/orgs/org1/tokens", "application/json", bytes.NewReader(body))
+
+	// Try to register with an invalid token
+	payload := protocol.RegisterPayload{
+		Name:     "EvilBot",
+		Endpoint: protocol.Endpoint{Type: "http", URL: "http://localhost:9002"},
+	}
+	reqBody, _ := json.Marshal(payload)
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/workers/register", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer mct_invalid_token_value")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 401 {
+		t.Errorf("invalid token status: got %d, want 401", resp.StatusCode)
+	}
+}

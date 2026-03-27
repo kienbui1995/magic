@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/kienbui1995/magic/core/internal/events"
@@ -21,6 +22,59 @@ func New(s store.Store, bus *events.Bus) *Registry {
 
 // Register adds a new worker to the system.
 func (r *Registry) Register(p protocol.RegisterPayload) (*protocol.Worker, error) {
+	if p.WorkerToken != "" || r.store.HasAnyWorkerTokens() {
+		// Security mode: token required
+		hash := protocol.HashToken(p.WorkerToken)
+		token, err := r.store.GetWorkerTokenByHash(hash)
+		if err != nil {
+			return nil, fmt.Errorf("invalid worker token")
+		}
+		if !token.IsValid() {
+			return nil, fmt.Errorf("token expired or revoked")
+		}
+		if token.WorkerID != "" {
+			return nil, fmt.Errorf("token already in use")
+		}
+		orgID := token.OrgID
+
+		w := &protocol.Worker{
+			ID:            protocol.GenerateID("worker"),
+			Name:          p.Name,
+			OrgID:         orgID,
+			Capabilities:  p.Capabilities,
+			Endpoint:      p.Endpoint,
+			Limits:        p.Limits,
+			Status:        protocol.StatusActive,
+			RegisteredAt:  time.Now(),
+			LastHeartbeat: time.Now(),
+			Metadata:      p.Metadata,
+		}
+
+		if err := r.store.AddWorker(w); err != nil {
+			return nil, err
+		}
+
+		// Bind token to worker; rollback on failure
+		token.WorkerID = w.ID
+		if err := r.store.UpdateWorkerToken(token); err != nil {
+			r.store.RemoveWorker(w.ID)
+			return nil, fmt.Errorf("failed to bind token")
+		}
+
+		r.bus.Publish(events.Event{
+			Type:   "worker.registered",
+			Source: "registry",
+			Payload: map[string]any{
+				"worker_id":   w.ID,
+				"worker_name": w.Name,
+				"org_id":      w.OrgID,
+			},
+		})
+
+		return w, nil
+	}
+
+	// Dev mode: no tokens exist, allow anonymous registration
 	w := &protocol.Worker{
 		ID:            protocol.GenerateID("worker"),
 		Name:          p.Name,
@@ -66,6 +120,22 @@ func (r *Registry) Deregister(workerID string) error {
 
 // Heartbeat updates a worker's health status. Does not override "paused" status.
 func (r *Registry) Heartbeat(p protocol.HeartbeatPayload) error {
+	if p.WorkerToken != "" || r.store.HasAnyWorkerTokens() {
+		// Security mode: validate token
+		hash := protocol.HashToken(p.WorkerToken)
+		token, err := r.store.GetWorkerTokenByHash(hash)
+		if err != nil {
+			return fmt.Errorf("invalid worker token")
+		}
+		if !token.IsValid() {
+			return fmt.Errorf("token expired or revoked")
+		}
+		if token.WorkerID != p.WorkerID {
+			return fmt.Errorf("token not authorized for this worker")
+		}
+	}
+	// Dev mode: no tokens exist, skip validation
+
 	w, err := r.store.GetWorker(p.WorkerID)
 	if err != nil {
 		return err

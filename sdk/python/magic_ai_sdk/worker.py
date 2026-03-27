@@ -15,9 +15,10 @@ logger = logging.getLogger("magic_ai_sdk")
 class Worker:
     """A MagiC worker that registers capabilities and handles tasks concurrently."""
 
-    def __init__(self, name: str, endpoint: str = "http://localhost:9000", max_workers: int = 5):
+    def __init__(self, name: str, endpoint: str = "http://localhost:9000", worker_token: str = "", max_workers: int = 5):
         self.name = name
         self.endpoint = endpoint
+        self._worker_token = worker_token
         self.max_workers = max_workers
         self._capabilities: dict[str, dict] = {}
         self._handlers: dict[str, Callable] = {}
@@ -46,6 +47,8 @@ class Worker:
             "endpoint": {"type": "http", "url": self.endpoint},
             "limits": {"max_concurrent_tasks": self.max_workers},
         }
+        if self._worker_token:
+            payload["worker_token"] = self._worker_token
         result = self._client.register_worker(payload)
         self._worker_id = result.get("id")
         logger.info("Registered as %s", self._worker_id)
@@ -59,7 +62,7 @@ class Worker:
                 time.sleep(interval + backoff)
                 if self._client and self._worker_id:
                     try:
-                        self._client.heartbeat(self._worker_id)
+                        self._client.heartbeat(self._worker_id, worker_token=self._worker_token)
                         backoff = 0  # reset on success
                     except Exception as e:
                         backoff = min(backoff * 2 + 1, 60)

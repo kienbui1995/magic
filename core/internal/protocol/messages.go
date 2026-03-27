@@ -50,6 +50,7 @@ func NewMessage(msgType, source, target string, payload json.RawMessage) Message
 }
 
 type RegisterPayload struct {
+	WorkerToken  string            `json:"worker_token"`
 	Name         string            `json:"name"`
 	Capabilities []Capability      `json:"capabilities"`
 	Endpoint     Endpoint          `json:"endpoint"`
@@ -84,6 +85,7 @@ type TaskProgressPayload struct {
 }
 
 type HeartbeatPayload struct {
+	WorkerToken string `json:"worker_token"`
 	WorkerID    string `json:"worker_id"`
 	CurrentLoad int    `json:"current_load"`
 	Status      string `json:"status"`

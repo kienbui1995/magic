@@ -70,6 +70,7 @@ type WorkerLimits struct {
 type Worker struct {
 	ID             string            `json:"id"`
 	Name           string            `json:"name"`
+	OrgID          string            `json:"org_id,omitempty"`
 	TeamID         string            `json:"team_id,omitempty"`
 	Capabilities   []Capability      `json:"capabilities"`
 	Endpoint       Endpoint          `json:"endpoint"`
@@ -80,6 +81,42 @@ type Worker struct {
 	RegisteredAt   time.Time         `json:"registered_at"`
 	LastHeartbeat  time.Time         `json:"last_heartbeat"`
 	Metadata       map[string]any    `json:"metadata,omitempty"`
+}
+
+// WorkerToken represents an authentication credential issued to a worker.
+type WorkerToken struct {
+	ID        string     `json:"id"`
+	OrgID     string     `json:"org_id"`
+	WorkerID  string     `json:"worker_id"`
+	TokenHash string     `json:"-"`
+	Name      string     `json:"name"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
+// IsValid checks if the token is not expired and not revoked.
+func (t *WorkerToken) IsValid() bool {
+	if t.RevokedAt != nil {
+		return false
+	}
+	if t.ExpiresAt != nil && time.Now().After(*t.ExpiresAt) {
+		return false
+	}
+	return true
+}
+
+// AuditEntry records a security-relevant action.
+type AuditEntry struct {
+	ID        string         `json:"id"`
+	Timestamp time.Time      `json:"timestamp"`
+	OrgID     string         `json:"org_id"`
+	WorkerID  string         `json:"worker_id,omitempty"`
+	Action    string         `json:"action"`
+	Resource  string         `json:"resource"`
+	Detail    map[string]any `json:"detail,omitempty"`
+	RequestID string         `json:"request_id,omitempty"`
+	Outcome   string         `json:"outcome"`
 }
 
 type Contract struct {

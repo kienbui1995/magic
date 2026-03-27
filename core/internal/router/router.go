@@ -26,8 +26,20 @@ func New(reg *registry.Registry, s store.Store, bus *events.Bus) *Router {
 }
 
 // RouteTask selects a worker for the task using the configured routing strategy.
+// When task.Context.OrgID is set, only workers in the same org are considered
+// (security mode). When empty, all workers are eligible (dev mode).
 func (r *Router) RouteTask(task *protocol.Task) (*protocol.Worker, error) {
-	allWorkers := r.registry.ListWorkers()
+	orgID := task.Context.OrgID
+
+	var allWorkers []*protocol.Worker
+	if orgID != "" {
+		// Security mode: only workers in the same org
+		allWorkers = r.store.ListWorkersByOrg(orgID)
+	} else {
+		// Dev mode: use all workers (existing behavior)
+		allWorkers = r.registry.ListWorkers()
+	}
+
 	capable := filterByCapability(allWorkers, task.Routing.RequiredCapabilities)
 
 	if len(capable) == 0 {
