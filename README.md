@@ -237,8 +237,33 @@ Failure handling per step: `retry`, `skip`, `abort`, `reassign`.
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
 | `MAGIC_PORT` | `8080` | Server port |
-| `MAGIC_API_KEY` | _(empty = no auth)_ | API key for authentication |
-| `MAGIC_CORS_ORIGIN` | `*` | Allowed CORS origin |
+| `MAGIC_API_KEY` | _(empty = no auth)_ | API key — **minimum 32 characters** (`openssl rand -hex 32`) |
+| `MAGIC_CORS_ORIGIN` | _(none)_ | Allowed CORS origin (e.g. `https://yourdomain.com`) |
+| `MAGIC_RATE_LIMIT_DISABLE` | `false` | Set `true` to disable rate limiting (dev/testing only) |
+
+### Rate Limiting
+
+MagiC includes built-in per-endpoint rate limiting (token bucket):
+
+| Endpoint | Limit |
+|----------|-------|
+| `POST /api/v1/workers/register` | 10 req / IP / min |
+| `POST /api/v1/workers/heartbeat` | 4 req / IP / min |
+| `POST /api/v1/orgs/{id}/tokens` | 20 req / org / min |
+| `POST /api/v1/tasks` | 200 req / org / min |
+
+**For production deployments**, supplement with Cloudflare or nginx for distributed attack protection:
+
+```nginx
+# nginx example
+limit_req_zone $binary_remote_addr zone=magic:10m rate=30r/m;
+limit_req zone=magic burst=10 nodelay;
+```
+
+```
+# Cloudflare: Zero Trust → WAF → Rate Limiting Rules
+# Recommended: 60 req/min per IP on /api/v1/*
+```
 
 ## Project Structure
 
