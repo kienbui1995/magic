@@ -97,8 +97,12 @@ const maxBodySize = 1 << 20 // 1 MB
 
 func authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip auth for health check and dashboard (dashboard handles auth via ?key= query param)
-		if r.URL.Path == "/health" || r.URL.Path == "/dashboard" {
+		// Skip admin auth for health, dashboard, and worker lifecycle endpoints.
+		// Worker endpoints (/workers/register, /workers/heartbeat) have their own
+		// workerAuthMiddleware — they must not require the admin API key.
+		workerPaths := r.URL.Path == "/api/v1/workers/register" ||
+			r.URL.Path == "/api/v1/workers/heartbeat"
+		if r.URL.Path == "/health" || r.URL.Path == "/dashboard" || workerPaths {
 			next.ServeHTTP(w, r)
 			return
 		}

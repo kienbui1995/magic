@@ -1,18 +1,14 @@
 """
 Jarvis Worker — wraps my-jarvis personal AI assistant as a MagiC worker.
 
-my-jarvis handles: chat, tasks, calendar, memory, web search, notes, and 25+ tools.
-This wrapper registers jarvis as a worker in a MagiC fleet.
-
 Usage:
-    pip install magic-ai-sdk httpx
     MAGIC_URL=http://localhost:18080 \
-    MAGIC_WORKER_TOKEN=mct_xxx \
-    JARVIS_URL=https://jarvis.pmai.space \
+    JARVIS_URL=http://localhost:8000 \
     JARVIS_API_KEY=your-64-char-key \
     python main.py
 """
 
+import inspect
 import logging
 import os
 
@@ -30,11 +26,11 @@ MAGIC_WORKER_TOKEN = os.environ.get("MAGIC_WORKER_TOKEN", "")
 _headers = {"X-API-Key": JARVIS_API_KEY}
 
 
-def _call(method: str, path: str, **kwargs):
-    """Synchronous helper — my-jarvis API calls."""
+def _call(path: str, args: dict = None) -> dict:
+    """Call my-jarvis public API."""
     url = f"{JARVIS_URL}/api/public/v1{path}"
     with httpx.Client(timeout=30) as client:
-        resp = client.request(method, url, headers=_headers, **kwargs)
+        resp = client.post(url, headers=_headers, json=args or {})
         resp.raise_for_status()
         return resp.json()
 
@@ -42,149 +38,100 @@ def _call(method: str, path: str, **kwargs):
 class JarvisWorker(Worker):
     """MagiC worker backed by my-jarvis personal AI assistant."""
 
-    # ── Conversational AI ──────────────────────────────────────────────────
-
     @capability(
         name="chat",
-        description="Vietnamese personal AI assistant. Handles general questions, "
-                    "creates tasks, searches memory, and coordinates other capabilities. "
-                    "Input: {message: str, conversation_id?: str}",
+        description="Vietnamese personal AI assistant. General questions, task planning, memory access. "
+                    "Args: message (str), conversation_id (str, optional)",
     )
-    def chat(self, task: dict) -> dict:
-        inp = task.get("input", {})
-        result = _call("POST", "/chat", json={
-            "message": inp.get("message", ""),
-            "conversation_id": inp.get("conversation_id"),
-        })
+    def chat(self, message: str = "", conversation_id: str = None, **_) -> dict:
+        result = _call("/chat", {"message": message, "conversation_id": conversation_id})
         log.info("chat → model=%s", result.get("model"))
         return {"response": result["response"], "model": result.get("model")}
 
-    # ── Task Management ────────────────────────────────────────────────────
+    @capability(name="task_create",
+                description="Create a personal task. Args: title (str), due_date (YYYY-MM-DD), priority (low/medium/high/urgent)")
+    def task_create(self, **kwargs) -> dict:
+        return _call("/tools/task_create/invoke", {"args": kwargs})
 
-    @capability(
-        name="task_create",
-        description="Create a new personal task. "
-                    "Input: {title: str, due_date?: 'YYYY-MM-DD', priority?: 'low|medium|high|urgent'}",
-    )
-    def task_create(self, task: dict) -> dict:
-        return _call("POST", "/tools/task_create/invoke",
-                     json={"args": task.get("input", {})})
+    @capability(name="task_list",
+                description="List personal tasks. Args: status (todo/in_progress/done/all)")
+    def task_list(self, **kwargs) -> dict:
+        return _call("/tools/task_list/invoke", {"args": kwargs})
 
-    @capability(
-        name="task_list",
-        description="List personal tasks. Input: {status?: 'pending|done|all'}",
-    )
-    def task_list(self, task: dict) -> dict:
-        return _call("POST", "/tools/task_list/invoke",
-                     json={"args": task.get("input", {})})
+    @capability(name="task_update",
+                description="Update a task. Args: task_id (str), status (str), title (str)")
+    def task_update(self, **kwargs) -> dict:
+        return _call("/tools/task_update/invoke", {"args": kwargs})
 
-    @capability(
-        name="task_update",
-        description="Update task status or title. "
-                    "Input: {task_id: str, status?: str, title?: str}",
-    )
-    def task_update(self, task: dict) -> dict:
-        return _call("POST", "/tools/task_update/invoke",
-                     json={"args": task.get("input", {})})
+    @capability(name="calendar_create",
+                description="Create calendar event. Args: title (str), start_time (ISO), end_time (ISO), location (str)")
+    def calendar_create(self, **kwargs) -> dict:
+        return _call("/tools/calendar_create/invoke", {"args": kwargs})
 
-    # ── Calendar ───────────────────────────────────────────────────────────
+    @capability(name="calendar_list",
+                description="List upcoming calendar events. Args: days (int)")
+    def calendar_list(self, **kwargs) -> dict:
+        return _call("/tools/calendar_list/invoke", {"args": kwargs})
 
-    @capability(
-        name="calendar_create",
-        description="Create a calendar event. "
-                    "Input: {title: str, date: 'YYYY-MM-DD', time?: 'HH:MM', description?: str}",
-    )
-    def calendar_create(self, task: dict) -> dict:
-        return _call("POST", "/tools/calendar_create/invoke",
-                     json={"args": task.get("input", {})})
+    @capability(name="memory_search",
+                description="Search personal memory. Args: query (str), limit (int)")
+    def memory_search(self, **kwargs) -> dict:
+        return _call("/tools/memory_search/invoke", {"args": kwargs})
 
-    @capability(
-        name="calendar_list",
-        description="List upcoming calendar events. Input: {days?: int}",
-    )
-    def calendar_list(self, task: dict) -> dict:
-        return _call("POST", "/tools/calendar_list/invoke",
-                     json={"args": task.get("input", {})})
+    @capability(name="memory_save",
+                description="Save to personal memory. Args: content (str)")
+    def memory_save(self, **kwargs) -> dict:
+        return _call("/tools/memory_save/invoke", {"args": kwargs})
 
-    # ── Memory ─────────────────────────────────────────────────────────────
+    @capability(name="web_search",
+                description="Search the web. Args: query (str)")
+    def web_search(self, **kwargs) -> dict:
+        return _call("/tools/web_search/invoke", {"args": kwargs})
 
-    @capability(
-        name="memory_search",
-        description="Search personal memory (semantic + keyword). "
-                    "Input: {query: str, limit?: int}",
-    )
-    def memory_search(self, task: dict) -> dict:
-        return _call("POST", "/tools/memory_search/invoke",
-                     json={"args": task.get("input", {})})
+    @capability(name="summarize_url",
+                description="Summarize a webpage. Args: url (str)")
+    def summarize_url(self, **kwargs) -> dict:
+        return _call("/tools/summarize_url/invoke", {"args": kwargs})
 
-    @capability(
-        name="memory_save",
-        description="Save something to personal memory. Input: {content: str}",
-    )
-    def memory_save(self, task: dict) -> dict:
-        return _call("POST", "/tools/memory_save/invoke",
-                     json={"args": task.get("input", {})})
+    @capability(name="note_save",
+                description="Save a note. Args: content (str), title (str)")
+    def note_save(self, **kwargs) -> dict:
+        return _call("/tools/note_save/invoke", {"args": kwargs})
 
-    # ── Web ────────────────────────────────────────────────────────────────
+    @capability(name="note_search",
+                description="Search notes. Args: query (str)")
+    def note_search(self, **kwargs) -> dict:
+        return _call("/tools/note_search/invoke", {"args": kwargs})
 
-    @capability(
-        name="web_search",
-        description="Search the web via DuckDuckGo. Input: {query: str}",
-    )
-    def web_search(self, task: dict) -> dict:
-        return _call("POST", "/tools/web_search/invoke",
-                     json={"args": task.get("input", {})})
+    @capability(name="weather_vn",
+                description="Vietnam weather. Args: city (str)")
+    def weather_vn(self, **kwargs) -> dict:
+        return _call("/tools/weather_vn/invoke", {"args": kwargs})
 
-    @capability(
-        name="summarize_url",
-        description="Summarize the content of a URL. Input: {url: str}",
-    )
-    def summarize_url(self, task: dict) -> dict:
-        return _call("POST", "/tools/summarize_url/invoke",
-                     json={"args": task.get("input", {})})
-
-    # ── Notes ──────────────────────────────────────────────────────────────
-
-    @capability(
-        name="note_save",
-        description="Save a note. Input: {content: str, title?: str}",
-    )
-    def note_save(self, task: dict) -> dict:
-        return _call("POST", "/tools/note_save/invoke",
-                     json={"args": task.get("input", {})})
-
-    @capability(
-        name="note_search",
-        description="Search personal notes. Input: {query: str}",
-    )
-    def note_search(self, task: dict) -> dict:
-        return _call("POST", "/tools/note_search/invoke",
-                     json={"args": task.get("input", {})})
-
-    # ── Vietnam-specific ───────────────────────────────────────────────────
-
-    @capability(
-        name="weather_vn",
-        description="Vietnam weather forecast. Input: {city: str}",
-    )
-    def weather_vn(self, task: dict) -> dict:
-        return _call("POST", "/tools/weather_vn/invoke",
-                     json={"args": task.get("input", {})})
-
-    @capability(
-        name="news_vn",
-        description="Vietnam news headlines. Input: {topic?: str}",
-    )
-    def news_vn(self, task: dict) -> dict:
-        return _call("POST", "/tools/news_vn/invoke",
-                     json={"args": task.get("input", {})})
+    @capability(name="news_vn",
+                description="Vietnam news. Args: topic (str, optional)")
+    def news_vn(self, **kwargs) -> dict:
+        return _call("/tools/news_vn/invoke", {"args": kwargs})
 
 
 if __name__ == "__main__":
+    PORT = int(os.environ.get("WORKER_PORT", "9001"))
+    ENDPOINT = os.environ.get("WORKER_ENDPOINT", f"http://localhost:{PORT}")
+
     worker = JarvisWorker(
         name="JarvisWorker",
-        endpoint=f"http://jarvis-worker:9001",  # this container's address
+        endpoint=ENDPOINT,
         worker_token=MAGIC_WORKER_TOKEN,
     )
-    log.info("Registering JarvisWorker with MagiC at %s", MAGIC_URL)
-    worker.serve(magic_url=MAGIC_URL, port=9001)
+
+    # Register all @capability-decorated methods
+    for _, method in inspect.getmembers(worker, predicate=inspect.ismethod):
+        cap = getattr(method, "_magic_capability", None)
+        if cap:
+            worker._capabilities[cap["name"]] = cap
+            worker._handlers[cap["name"]] = method
+
+    log.info("Capabilities: %s", list(worker._capabilities.keys()))
+    worker.register(MAGIC_URL)
+    log.info("Registered. Listening on :%d", PORT)
+    worker.serve(port=PORT)
