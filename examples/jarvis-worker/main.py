@@ -8,7 +8,6 @@ Usage:
     python main.py
 """
 
-import inspect
 import logging
 import os
 
@@ -123,15 +122,4 @@ if __name__ == "__main__":
         endpoint=ENDPOINT,
         worker_token=MAGIC_WORKER_TOKEN,
     )
-
-    # Register all @capability-decorated methods
-    for _, method in inspect.getmembers(worker, predicate=inspect.ismethod):
-        cap = getattr(method, "_magic_capability", None)
-        if cap:
-            worker._capabilities[cap["name"]] = cap
-            worker._handlers[cap["name"]] = method
-
-    log.info("Capabilities: %s", list(worker._capabilities.keys()))
-    worker.register(MAGIC_URL)
-    log.info("Registered. Listening on :%d", PORT)
-    worker.serve(port=PORT)
+    worker.run(MAGIC_URL, port=PORT)  # auto-discover + register + serve

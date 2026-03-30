@@ -1,5 +1,6 @@
 """MagiC Worker — concurrent task handling with threading."""
 
+import inspect
 import json
 import logging
 import threading
@@ -38,8 +39,26 @@ class Worker:
             return func
         return decorator
 
+    def _discover_capabilities(self):
+        """Auto-discover methods decorated with @capability and register them.
+
+        Works with both the standalone @capability decorator (sets _magic_capability
+        attribute) and the instance .capability() decorator (populates _capabilities
+        dict directly). Safe to call multiple times — won't duplicate entries.
+        """
+        for _, method in inspect.getmembers(self, predicate=inspect.ismethod):
+            cap = getattr(method, "_magic_capability", None)
+            if cap and cap["name"] not in self._capabilities:
+                self._capabilities[cap["name"]] = cap
+                self._handlers[cap["name"]] = method
+
     def register(self, magic_url: str):
-        """Register this worker with the MagiC server."""
+        """Register this worker with the MagiC server.
+
+        Auto-discovers @capability decorated methods before registering,
+        so subclasses don't need to call _discover_capabilities() manually.
+        """
+        self._discover_capabilities()
         self._client = MagiCClient(magic_url)
         payload = {
             "name": self.name,
@@ -49,7 +68,7 @@ class Worker:
         }
         result = self._client.register_worker(payload, worker_token=self._worker_token)
         self._worker_id = result.get("id")
-        logger.info("Registered as %s", self._worker_id)
+        logger.info("Registered as %s with %d capabilities", self._worker_id, len(self._capabilities))
         return self
 
     def _start_heartbeat(self, interval: int = 30):
@@ -77,6 +96,19 @@ class Worker:
         if isinstance(result, str):
             return {"result": result}
         return result
+
+    def run(self, magic_url: str, port: int = 9000, host: str = "0.0.0.0"):
+        """Register with MagiC and start serving — one-call convenience method.
+
+        Equivalent to: worker.register(magic_url); worker.serve(port=port)
+
+        Example::
+
+            worker = MyWorker(name="MyBot", endpoint="http://mybot:9000")
+            worker.run("http://magic:18080", port=9000)
+        """
+        self.register(magic_url)
+        self.serve(host=host, port=port)
 
     def serve(self, host: str = "0.0.0.0", port: int = 9000):
         """Start the worker HTTP server with concurrent task handling."""

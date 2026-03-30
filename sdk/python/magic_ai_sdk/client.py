@@ -1,6 +1,7 @@
 """MagiC HTTP client for communicating with the server."""
 
 import logging
+import time
 
 import httpx
 
@@ -54,6 +55,45 @@ class MagiCClient:
 
     def get_task(self, task_id: str) -> dict:
         return self._client.get(f"/api/v1/tasks/{task_id}").raise_for_status().json()
+
+    def submit_and_wait(
+        self,
+        task: dict,
+        timeout: float = 60.0,
+        poll_interval: float = 1.0,
+    ) -> dict:
+        """Submit a task and block until it completes or times out.
+
+        Returns the completed task dict (with ``output`` field populated).
+        Raises ``TimeoutError`` if the task doesn't finish within ``timeout`` seconds.
+        Raises ``RuntimeError`` if the task fails.
+
+        Example::
+
+            result = client.submit_and_wait({
+                "type": "chat",
+                "input": {"message": "Hello"},
+                "routing": {"required_capabilities": ["chat"]},
+            })
+            print(result["output"]["response"])
+        """
+        submitted = self.submit_task(task)
+        task_id = submitted.get("id")
+        if not task_id:
+            raise RuntimeError(f"Task submission failed: {submitted}")
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            t = self.get_task(task_id)
+            status = t.get("status", "")
+            if status == "completed":
+                return t
+            if status == "failed":
+                err = t.get("error", {})
+                raise RuntimeError(f"Task {task_id} failed: {err.get('message', err)}")
+            time.sleep(poll_interval)
+
+        raise TimeoutError(f"Task {task_id} did not complete within {timeout}s")
 
     def list_tasks(self, limit: int = 100, offset: int = 0) -> list[dict]:
         return self._client.get("/api/v1/tasks", params={"limit": limit, "offset": offset}).raise_for_status().json()
@@ -172,6 +212,32 @@ class AsyncMagiCClient:
 
     async def get_task(self, task_id: str) -> dict:
         return (await self._client.get(f"/api/v1/tasks/{task_id}")).raise_for_status().json()
+
+    async def submit_and_wait(
+        self,
+        task: dict,
+        timeout: float = 60.0,
+        poll_interval: float = 1.0,
+    ) -> dict:
+        """Async version of submit_and_wait."""
+        import asyncio
+        submitted = await self.submit_task(task)
+        task_id = submitted.get("id")
+        if not task_id:
+            raise RuntimeError(f"Task submission failed: {submitted}")
+
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            t = await self.get_task(task_id)
+            status = t.get("status", "")
+            if status == "completed":
+                return t
+            if status == "failed":
+                err = t.get("error", {})
+                raise RuntimeError(f"Task {task_id} failed: {err.get('message', err)}")
+            await asyncio.sleep(poll_interval)
+
+        raise TimeoutError(f"Task {task_id} did not complete within {timeout}s")
 
     async def list_tasks(self, limit: int = 100, offset: int = 0) -> list[dict]:
         return (await self._client.get("/api/v1/tasks", params={"limit": limit, "offset": offset})).raise_for_status().json()
