@@ -35,7 +35,7 @@ func setupGateway() *gateway.Gateway {
 	disp := dispatcher.New(s, bus, cc, ev)
 	orch := orchestrator.New(s, rt, bus, disp)
 	mgr := orgmgr.New(s, bus)
-	kb := knowledge.New(s, bus)
+	kb := knowledge.New(s, bus, nil)
 	return gateway.New(gateway.Deps{
 		Registry:     reg,
 		Router:       rt,

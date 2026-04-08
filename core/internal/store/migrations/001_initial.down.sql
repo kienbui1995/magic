@@ -1,0 +1,9 @@
+DROP TABLE IF EXISTS webhook_deliveries;
+DROP TABLE IF EXISTS webhooks;
+DROP TABLE IF EXISTS audit_log;
+DROP TABLE IF EXISTS worker_tokens;
+DROP TABLE IF EXISTS knowledge;
+DROP TABLE IF EXISTS teams;
+DROP TABLE IF EXISTS workflows;
+DROP TABLE IF EXISTS tasks;
+DROP TABLE IF EXISTS workers;

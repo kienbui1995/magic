@@ -76,4 +76,17 @@ type Store interface {
 	ListWorkersByOrg(orgID string) []*protocol.Worker
 	ListTasksByOrg(orgID string) []*protocol.Task
 	FindWorkersByCapabilityAndOrg(capability, orgID string) []*protocol.Worker
+
+	// Webhooks
+	AddWebhook(w *protocol.Webhook) error
+	GetWebhook(id string) (*protocol.Webhook, error)
+	UpdateWebhook(w *protocol.Webhook) error
+	DeleteWebhook(id string) error
+	ListWebhooksByOrg(orgID string) []*protocol.Webhook
+	FindWebhooksByEvent(eventType string) []*protocol.Webhook
+
+	// Webhook deliveries
+	AddWebhookDelivery(d *protocol.WebhookDelivery) error
+	UpdateWebhookDelivery(d *protocol.WebhookDelivery) error
+	ListPendingWebhookDeliveries() []*protocol.WebhookDelivery
 }

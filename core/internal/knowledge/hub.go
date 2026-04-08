@@ -1,6 +1,7 @@
 package knowledge
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/kienbui1995/magic/core/internal/events"
@@ -9,12 +10,13 @@ import (
 )
 
 type Hub struct {
-	store store.Store
-	bus   *events.Bus
+	store   store.Store
+	bus     *events.Bus
+	vectors VectorStore // nil if semantic search not configured
 }
 
-func New(s store.Store, bus *events.Bus) *Hub {
-	return &Hub{store: s, bus: bus}
+func New(s store.Store, bus *events.Bus, vs VectorStore) *Hub {
+	return &Hub{store: s, bus: bus, vectors: vs}
 }
 
 func (h *Hub) Add(title, content string, tags []string, scope, scopeID, createdBy string) (*protocol.KnowledgeEntry, error) {
@@ -94,4 +96,21 @@ func (h *Hub) Search(query string) []*protocol.KnowledgeEntry {
 
 func (h *Hub) List() []*protocol.KnowledgeEntry {
 	return h.store.ListKnowledge()
+}
+
+// SemanticSearch returns knowledge entries ranked by cosine similarity to queryVector.
+// Returns an error if no VectorStore is configured (nil).
+func (h *Hub) SemanticSearch(queryVector []float32, topK int) ([]SearchResult, error) {
+	if h.vectors == nil {
+		return nil, fmt.Errorf("semantic search requires PostgreSQL backend with pgvector")
+	}
+	return h.vectors.Search(queryVector, topK)
+}
+
+// AddEmbedding stores a vector embedding for an existing knowledge entry.
+func (h *Hub) AddEmbedding(id string, vector []float32, meta map[string]any) error {
+	if h.vectors == nil {
+		return fmt.Errorf("semantic search requires PostgreSQL backend with pgvector")
+	}
+	return h.vectors.Upsert(id, vector, meta)
 }

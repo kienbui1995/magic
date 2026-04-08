@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -23,6 +25,7 @@ import (
 	"github.com/kienbui1995/magic/core/internal/registry"
 	"github.com/kienbui1995/magic/core/internal/router"
 	"github.com/kienbui1995/magic/core/internal/store"
+	"github.com/kienbui1995/magic/core/internal/webhook"
 )
 
 func main() {
@@ -53,18 +56,60 @@ func runServer() {
 		log.Fatalf("[security] MAGIC_API_KEY must be at least 32 characters (got %d). Generate one with: openssl rand -hex 32", len(apiKey))
 	}
 
-	// Store
+	// Store — auto-detect backend from env vars
 	var s store.Store
-	storePath := os.Getenv("MAGIC_STORE")
-	if storePath != "" {
-		sqliteStore, err := store.NewSQLiteStore(storePath)
+	switch {
+	case os.Getenv("MAGIC_POSTGRES_URL") != "":
+		pgURL := os.Getenv("MAGIC_POSTGRES_URL")
+		// Support pool size config via URL query params.
+		// Use ? if no query string exists, & otherwise.
+		sep := func() string {
+			if strings.Contains(pgURL, "?") {
+				return "&"
+			}
+			return "?"
+		}
+		if min := os.Getenv("MAGIC_POSTGRES_POOL_MIN"); min != "" {
+			pgURL += sep() + "pool_min_conns=" + min
+		}
+		if max := os.Getenv("MAGIC_POSTGRES_POOL_MAX"); max != "" {
+			pgURL += sep() + "pool_max_conns=" + max
+		}
+		if err := store.RunMigrations(pgURL); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to run migrations: %v\n", err)
+			os.Exit(1)
+		}
+		pgStore, err := store.NewPostgreSQLStore(context.Background(), pgURL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to connect to PostgreSQL: %v\n", err)
+			os.Exit(1)
+		}
+		s = pgStore
+		fmt.Println("  Storage: PostgreSQL")
+	case os.Getenv("MAGIC_STORE") != "":
+		sqliteStore, err := store.NewSQLiteStore(os.Getenv("MAGIC_STORE"))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to open store: %v\n", err)
 			os.Exit(1)
 		}
 		s = sqliteStore
-	} else {
+		fmt.Printf("  Storage: SQLite (%s)\n", os.Getenv("MAGIC_STORE"))
+	default:
 		s = store.NewMemoryStore()
+		fmt.Println("  Storage: in-memory (set MAGIC_STORE=path.db or MAGIC_POSTGRES_URL for persistence)")
+	}
+
+	// VectorStore — only available with PostgreSQL backend
+	var vs store.VectorStore
+	if pgStore, ok := s.(*store.PostgreSQLStore); ok {
+		dim := 1536
+		if d := os.Getenv("MAGIC_PGVECTOR_DIM"); d != "" {
+			if parsed, err := strconv.Atoi(d); err == nil && parsed > 0 {
+				dim = parsed
+			}
+		}
+		vs = store.NewPGVectorStore(pgStore.Pool(), dim)
+		fmt.Println("  Semantic search: enabled (pgvector)")
 	}
 
 	// Core
@@ -81,11 +126,15 @@ func runServer() {
 	disp := dispatcher.New(s, bus, cc, ev)
 	orch := orchestrator.New(s, rt, bus, disp)
 	mgr := orgmgr.New(s, bus)
-	kb := knowledge.New(s, bus)
+	kb := knowledge.New(s, bus, vs)
 
 	// Audit logger — subscribes to events and records them
 	auditLogger := audit.New(s, bus)
 	auditLogger.SubscribeToEvents()
+
+	// Webhook manager — subscribes to events and delivers webhooks
+	wh := webhook.New(s, bus)
+	wh.Start()
 
 	gw := gateway.New(gateway.Deps{
 		Registry:     reg,
@@ -99,6 +148,7 @@ func runServer() {
 		OrgMgr:       mgr,
 		Knowledge:    kb,
 		Dispatcher:   disp,
+		Webhook:      wh,
 	})
 
 	if s.HasAnyWorkerTokens() {
@@ -128,9 +178,6 @@ func runServer() {
 		} else {
 			fmt.Println("  Authentication: disabled (set MAGIC_API_KEY to enable)")
 		}
-		if os.Getenv("MAGIC_STORE") == "" {
-			fmt.Println("  Storage: in-memory (set MAGIC_STORE=path.db for persistence)")
-		}
 		fmt.Println("  POST /api/v1/workers/register  — Register a worker")
 		fmt.Println("  GET  /api/v1/workers           — List workers")
 		fmt.Println("  POST /api/v1/tasks             — Submit a task")
@@ -141,8 +188,12 @@ func runServer() {
 		fmt.Println("  GET  /api/v1/costs             — Cost report")
 		fmt.Println("  POST /api/v1/knowledge         — Add knowledge entry")
 		fmt.Println("  GET  /api/v1/knowledge         — Search/list knowledge")
+		fmt.Println("  POST /api/v1/knowledge/{id}/embedding — Store embedding")
+		fmt.Println("  POST /api/v1/knowledge/search/semantic — Semantic search")
 		fmt.Println("  GET  /api/v1/metrics           — View stats")
+		fmt.Println("  GET  /metrics                  — Prometheus metrics (no auth)")
 		fmt.Println("  GET  /health                   — Health check")
+		fmt.Println("  POST /api/v1/orgs/{orgID}/webhooks — Register webhook")
 
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Fprintf(os.Stderr, "Server error: %v\n", err)

@@ -11,7 +11,7 @@ import (
 func TestHub_Add(t *testing.T) {
 	s := store.NewMemoryStore()
 	bus := events.NewBus()
-	hub := knowledge.New(s, bus)
+	hub := knowledge.New(s, bus, nil)
 
 	entry, err := hub.Add("API Guidelines", "Use REST conventions", []string{"api", "rest"}, "org", "org_magic", "admin")
 	if err != nil {
@@ -28,7 +28,7 @@ func TestHub_Add(t *testing.T) {
 func TestHub_Get(t *testing.T) {
 	s := store.NewMemoryStore()
 	bus := events.NewBus()
-	hub := knowledge.New(s, bus)
+	hub := knowledge.New(s, bus, nil)
 
 	entry, _ := hub.Add("Test", "Content", nil, "org", "org_magic", "admin")
 
@@ -44,7 +44,7 @@ func TestHub_Get(t *testing.T) {
 func TestHub_Search(t *testing.T) {
 	s := store.NewMemoryStore()
 	bus := events.NewBus()
-	hub := knowledge.New(s, bus)
+	hub := knowledge.New(s, bus, nil)
 
 	hub.Add("API Guidelines", "REST conventions", []string{"api"}, "org", "org_magic", "admin")
 	hub.Add("Database Guide", "Use PostgreSQL", []string{"database"}, "org", "org_magic", "admin")
@@ -63,7 +63,7 @@ func TestHub_Search(t *testing.T) {
 func TestHub_Update(t *testing.T) {
 	s := store.NewMemoryStore()
 	bus := events.NewBus()
-	hub := knowledge.New(s, bus)
+	hub := knowledge.New(s, bus, nil)
 
 	entry, _ := hub.Add("Old Title", "Old content", nil, "org", "org_magic", "admin")
 
@@ -84,7 +84,7 @@ func TestHub_Update(t *testing.T) {
 func TestHub_Delete(t *testing.T) {
 	s := store.NewMemoryStore()
 	bus := events.NewBus()
-	hub := knowledge.New(s, bus)
+	hub := knowledge.New(s, bus, nil)
 
 	entry, _ := hub.Add("To Delete", "Content", nil, "org", "org_magic", "admin")
 
@@ -102,7 +102,7 @@ func TestHub_Delete(t *testing.T) {
 func TestHub_List(t *testing.T) {
 	s := store.NewMemoryStore()
 	bus := events.NewBus()
-	hub := knowledge.New(s, bus)
+	hub := knowledge.New(s, bus, nil)
 
 	hub.Add("Entry 1", "Content 1", nil, "org", "org_magic", "admin")
 	hub.Add("Entry 2", "Content 2", nil, "team", "team_marketing", "admin")
@@ -110,5 +110,67 @@ func TestHub_List(t *testing.T) {
 	entries := hub.List()
 	if len(entries) != 2 {
 		t.Errorf("List: got %d, want 2", len(entries))
+	}
+}
+
+// mockVectorStore for testing
+type mockVectorStore struct {
+	upserted map[string][]float32
+	results  []knowledge.SearchResult
+}
+
+func (m *mockVectorStore) Upsert(id string, vector []float32, meta map[string]any) error {
+	if m.upserted == nil {
+		m.upserted = make(map[string][]float32)
+	}
+	m.upserted[id] = vector
+	return nil
+}
+
+func (m *mockVectorStore) Search(queryVector []float32, topK int) ([]knowledge.SearchResult, error) {
+	return m.results, nil
+}
+
+func (m *mockVectorStore) Delete(id string) error {
+	delete(m.upserted, id)
+	return nil
+}
+
+func TestHub_SemanticSearch(t *testing.T) {
+	ms := store.NewMemoryStore()
+	bus := events.NewBus()
+	vs := &mockVectorStore{
+		results: []knowledge.SearchResult{{ID: "kb-1", Score: 0.95}},
+	}
+	h := knowledge.New(ms, bus, vs)
+
+	results, err := h.SemanticSearch([]float32{0.1, 0.2, 0.3}, 5)
+	if err != nil {
+		t.Fatalf("SemanticSearch: %v", err)
+	}
+	if len(results) != 1 || results[0].ID != "kb-1" {
+		t.Errorf("unexpected results: %v", results)
+	}
+}
+
+func TestHub_SemanticSearch_NoVectorStore(t *testing.T) {
+	ms := store.NewMemoryStore()
+	bus := events.NewBus()
+	h := knowledge.New(ms, bus, nil) // no vector store
+
+	_, err := h.SemanticSearch([]float32{0.1}, 5)
+	if err == nil {
+		t.Error("expected error when VectorStore is nil")
+	}
+}
+
+func TestHub_AddEmbedding_NoVectorStore(t *testing.T) {
+	ms := store.NewMemoryStore()
+	bus := events.NewBus()
+	h := knowledge.New(ms, bus, nil)
+
+	err := h.AddEmbedding("kb-1", []float32{0.1}, nil)
+	if err == nil {
+		t.Error("expected error when VectorStore is nil")
 	}
 }

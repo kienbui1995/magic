@@ -40,12 +40,46 @@ func (m *Monitor) Start() {
 			atomic.AddInt64(&m.stats.TasksRouted, 1)
 		case "task.completed":
 			atomic.AddInt64(&m.stats.TasksDone, 1)
+			workerID, _ := e.Payload["worker_id"].(string)
+			taskType, _ := e.Payload["task_type"].(string)
+			MetricTasksTotal.WithLabelValues(taskType, "completed", workerID).Inc()
 		case "task.failed":
 			atomic.AddInt64(&m.stats.TasksFailed, 1)
+			workerID, _ := e.Payload["worker_id"].(string)
+			taskType, _ := e.Payload["task_type"].(string)
+			MetricTasksTotal.WithLabelValues(taskType, "failed", workerID).Inc()
 		case "worker.registered":
 			atomic.AddInt64(&m.stats.WorkersCount, 1)
+			orgID, _ := e.Payload["org_id"].(string)
+			MetricWorkersActive.WithLabelValues(orgID).Inc()
 		case "worker.deregistered":
 			atomic.AddInt64(&m.stats.WorkersCount, -1)
+			orgID, _ := e.Payload["org_id"].(string)
+			MetricWorkersActive.WithLabelValues(orgID).Dec()
+		case "knowledge.added":
+			MetricKnowledgeEntriesTotal.Inc()
+		case "knowledge.deleted":
+			MetricKnowledgeEntriesTotal.Dec()
+		case "knowledge.queried":
+			qType, _ := e.Payload["type"].(string)
+			if qType == "" {
+				qType = "keyword"
+			}
+			MetricKnowledgeQueriesTotal.WithLabelValues(qType).Inc()
+		case "workflow.started":
+			MetricWorkflowsActive.Inc()
+		case "workflow.completed":
+			MetricWorkflowStepsTotal.WithLabelValues("completed").Inc()
+			MetricWorkflowsActive.Dec()
+		case "workflow.failed":
+			MetricWorkflowStepsTotal.WithLabelValues("failed").Inc()
+			MetricWorkflowsActive.Dec()
+		case "cost.recorded":
+			if cost, ok := e.Payload["cost"].(float64); ok {
+				orgID, _ := e.Payload["org_id"].(string)
+				workerID, _ := e.Payload["worker_id"].(string)
+				MetricCostTotalUSD.WithLabelValues(orgID, workerID).Add(cost)
+			}
 		}
 
 		writeLogEntry(m.writer, &m.writerMu, e)

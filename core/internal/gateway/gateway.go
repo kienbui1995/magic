@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/time/rate"
 
 	"github.com/kienbui1995/magic/core/internal/costctrl"
@@ -17,6 +18,7 @@ import (
 	"github.com/kienbui1995/magic/core/internal/registry"
 	"github.com/kienbui1995/magic/core/internal/router"
 	"github.com/kienbui1995/magic/core/internal/store"
+	"github.com/kienbui1995/magic/core/internal/webhook"
 )
 
 // Deps holds all dependencies for the Gateway.
@@ -32,6 +34,7 @@ type Deps struct {
 	OrgMgr       *orgmgr.Manager
 	Knowledge    *knowledge.Hub
 	Dispatcher   *dispatcher.Dispatcher
+	Webhook      *webhook.Manager
 }
 
 // Gateway is the HTTP entry point for the MagiC server.
@@ -64,6 +67,9 @@ func (g *Gateway) Handler() http.Handler {
 	})
 	taskRL := rateLimitMiddleware(taskLimiter, clientIP)
 
+	// Prometheus metrics — no auth (Prometheus scrapers don't send Bearer tokens)
+	mux.Handle("GET /metrics", promhttp.Handler())
+
 	// Health
 	mux.HandleFunc("GET /health", g.handleHealth)
 
@@ -83,6 +89,9 @@ func (g *Gateway) Handler() http.Handler {
 	// Tasks
 	mux.Handle("POST /api/v1/tasks", taskRL(http.HandlerFunc(g.handleSubmitTask)))
 	mux.HandleFunc("GET /api/v1/tasks", g.handleListTasks)
+	// Streaming tasks (must be before /tasks/{id} to avoid ambiguity)
+	mux.Handle("POST /api/v1/tasks/stream", taskRL(http.HandlerFunc(g.handleStreamTask)))
+	mux.HandleFunc("GET /api/v1/tasks/{id}/stream", g.handleResubscribeStream)
 	mux.HandleFunc("GET /api/v1/tasks/{id}", g.handleGetTask)
 
 	// Workflows
@@ -105,6 +114,8 @@ func (g *Gateway) Handler() http.Handler {
 	// Knowledge
 	mux.HandleFunc("POST /api/v1/knowledge", g.handleAddKnowledge)
 	mux.HandleFunc("GET /api/v1/knowledge", g.handleSearchKnowledge)
+	mux.HandleFunc("POST /api/v1/knowledge/{id}/embedding", g.handleAddEmbedding)
+	mux.HandleFunc("POST /api/v1/knowledge/search/semantic", g.handleSemanticSearch)
 
 	// Token management (admin auth — MAGIC_API_KEY) + per-org rate limiting
 	mux.Handle("POST /api/v1/orgs/{orgID}/tokens",
@@ -115,6 +126,12 @@ func (g *Gateway) Handler() http.Handler {
 
 	// Audit log (admin auth — MAGIC_API_KEY)
 	mux.HandleFunc("GET /api/v1/orgs/{orgID}/audit", g.handleQueryAudit)
+
+	// Webhooks
+	mux.HandleFunc("POST /api/v1/orgs/{orgID}/webhooks", g.handleCreateWebhook)
+	mux.HandleFunc("GET /api/v1/orgs/{orgID}/webhooks", g.handleListWebhooks)
+	mux.HandleFunc("DELETE /api/v1/orgs/{orgID}/webhooks/{webhookID}", g.handleDeleteWebhook)
+	mux.HandleFunc("GET /api/v1/orgs/{orgID}/webhooks/{webhookID}/deliveries", g.handleListWebhookDeliveries)
 
 	var handler http.Handler = mux
 	handler = requestIDMiddleware(handler)

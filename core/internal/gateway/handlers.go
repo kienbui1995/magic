@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -311,6 +312,59 @@ func (g *Gateway) handleSearchKnowledge(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, paginate(entries, limit, offset))
 }
 
+func (g *Gateway) handleAddEmbedding(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		Vector   []float32      `json:"vector"`
+		Metadata map[string]any `json:"metadata"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.Vector) == 0 {
+		writeError(w, http.StatusBadRequest, "vector is required")
+		return
+	}
+	if err := g.deps.Knowledge.AddEmbedding(id, req.Vector, req.Metadata); err != nil {
+		if strings.Contains(err.Error(), "pgvector") {
+			writeError(w, http.StatusNotImplemented, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to store embedding")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (g *Gateway) handleSemanticSearch(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		QueryVector []float32 `json:"query_vector"`
+		TopK        int       `json:"top_k"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.QueryVector) == 0 {
+		writeError(w, http.StatusBadRequest, "query_vector is required")
+		return
+	}
+	if req.TopK <= 0 {
+		req.TopK = 10
+	}
+	results, err := g.deps.Knowledge.SemanticSearch(req.QueryVector, req.TopK)
+	if err != nil {
+		if strings.Contains(err.Error(), "pgvector") {
+			writeError(w, http.StatusNotImplemented, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "semantic search failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, results)
+}
+
 // createTokenRequest is the body for POST /api/v1/orgs/{orgID}/tokens.
 type createTokenRequest struct {
 	Name           string `json:"name"`
@@ -488,4 +542,163 @@ func (g *Gateway) handleQueryAudit(w http.ResponseWriter, r *http.Request) {
 		"limit":   limit,
 		"offset":  offset,
 	})
+}
+
+// handleStreamTask submits a task and streams the result back via SSE.
+// POST /api/v1/tasks/stream
+func (g *Gateway) handleStreamTask(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Type    string               `json:"type"`
+		Input   json.RawMessage      `json:"input"`
+		Context protocol.TaskContext `json:"context"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Type == "" {
+		writeError(w, http.StatusBadRequest, "type is required")
+		return
+	}
+
+	task := &protocol.Task{
+		ID:       protocol.GenerateID("t"),
+		Type:     req.Type,
+		Status:   protocol.TaskPending,
+		Input:    req.Input,
+		Context:  req.Context,
+		Priority: protocol.PriorityNormal,
+	}
+
+	// Route to a worker (populates task.AssignedWorker and sets status to TaskAssigned)
+	worker, err := g.deps.Router.RouteTask(task)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "no worker available: "+err.Error())
+		return
+	}
+
+	if err := g.deps.Store.AddTask(task); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create task")
+		return
+	}
+
+	// Set SSE headers and remove write deadline for streaming
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	rc := http.NewResponseController(w)
+	if err := rc.SetWriteDeadline(time.Time{}); err != nil {
+		// Not all ResponseWriters support this — log but continue
+		_ = err
+	}
+
+	if err := g.deps.Dispatcher.DispatchStream(r.Context(), task, worker, w); err != nil {
+		// Write SSE error event — headers already sent, so can't change status code
+		fmt.Fprintf(w, "data: {\"error\":%q,\"done\":true}\n\n", err.Error())
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}
+}
+
+// handleCreateWebhook registers a new webhook for an org.
+// POST /api/v1/orgs/{orgID}/webhooks
+func (g *Gateway) handleCreateWebhook(w http.ResponseWriter, r *http.Request) {
+	orgID := r.PathValue("orgID")
+	var req struct {
+		URL    string   `json:"url"`
+		Events []string `json:"events"`
+		Secret string   `json:"secret"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.URL == "" || len(req.Events) == 0 {
+		writeError(w, http.StatusBadRequest, "url and events are required")
+		return
+	}
+	hook, err := g.deps.Webhook.CreateWebhook(orgID, req.URL, req.Events, req.Secret)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create webhook")
+		return
+	}
+	hook.Secret = "" // never return secret
+	writeJSON(w, http.StatusCreated, hook)
+}
+
+// handleListWebhooks returns all webhooks for an org.
+// GET /api/v1/orgs/{orgID}/webhooks
+func (g *Gateway) handleListWebhooks(w http.ResponseWriter, r *http.Request) {
+	orgID := r.PathValue("orgID")
+	writeJSON(w, http.StatusOK, g.deps.Webhook.ListWebhooks(orgID))
+}
+
+// handleDeleteWebhook removes a webhook by ID.
+// DELETE /api/v1/orgs/{orgID}/webhooks/{webhookID}
+func (g *Gateway) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
+	orgID := r.PathValue("orgID")
+	webhookID := r.PathValue("webhookID")
+
+	// Verify org ownership before deleting
+	hook, err := g.deps.Store.GetWebhook(webhookID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "webhook not found")
+		return
+	}
+	if hook.OrgID != orgID {
+		writeError(w, http.StatusNotFound, "webhook not found")
+		return
+	}
+
+	if err := g.deps.Webhook.DeleteWebhook(webhookID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete webhook")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleListWebhookDeliveries returns deliveries for a webhook.
+// GET /api/v1/orgs/{orgID}/webhooks/{webhookID}/deliveries
+func (g *Gateway) handleListWebhookDeliveries(w http.ResponseWriter, r *http.Request) {
+	webhookID := r.PathValue("webhookID")
+	writeJSON(w, http.StatusOK, g.deps.Webhook.ListDeliveries(webhookID))
+}
+
+// handleResubscribeStream returns the result of a completed/failed task as a single SSE event.
+// GET /api/v1/tasks/{id}/stream
+func (g *Gateway) handleResubscribeStream(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	task, err := g.deps.Store.GetTask(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	rc := http.NewResponseController(w)
+	rc.SetWriteDeadline(time.Time{}) //nolint:errcheck
+
+	switch task.Status {
+	case protocol.TaskCompleted:
+		output, _ := json.Marshal(task.Output)
+		fmt.Fprintf(w, "data: {\"chunk\":%s,\"task_id\":%q,\"done\":true}\n\n", output, id)
+	case protocol.TaskFailed:
+		msg := "task failed"
+		if task.Error != nil {
+			msg = task.Error.Message
+		}
+		fmt.Fprintf(w, "data: {\"error\":%q,\"done\":true}\n\n", msg)
+	default:
+		writeError(w, http.StatusAccepted, "task is still running; poll GET /api/v1/tasks/"+id)
+		return
+	}
+
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
 }

@@ -102,7 +102,7 @@ func authMiddleware(next http.Handler) http.Handler {
 		// workerAuthMiddleware — they must not require the admin API key.
 		workerPaths := r.URL.Path == "/api/v1/workers/register" ||
 			r.URL.Path == "/api/v1/workers/heartbeat"
-		if r.URL.Path == "/health" || r.URL.Path == "/dashboard" || workerPaths {
+		if r.URL.Path == "/health" || r.URL.Path == "/dashboard" || r.URL.Path == "/metrics" || workerPaths {
 			next.ServeHTTP(w, r)
 			return
 		}

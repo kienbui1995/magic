@@ -48,6 +48,7 @@ type Capability struct {
 	OutputSchema   json.RawMessage `json:"output_schema,omitempty"`
 	EstCostPerCall float64         `json:"est_cost_per_call,omitempty"`
 	AvgResponseMs  int64           `json:"avg_response_ms,omitempty"`
+	Streaming      bool            `json:"streaming,omitempty"` // worker supports SSE streaming for this capability
 }
 
 type Endpoint struct {
@@ -360,4 +361,46 @@ type KnowledgeEntry struct {
 	CreatedBy string    `json:"created_by,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Webhook represents a registered webhook endpoint for receiving MagiC events.
+type Webhook struct {
+	ID        string    `json:"id"`
+	OrgID     string    `json:"org_id"`
+	URL       string    `json:"url"`
+	Events    []string  `json:"events"`                   // e.g. ["task.complete", "worker.register"]
+	Secret    string    `json:"secret,omitempty"`         // write-only: HMAC-SHA256 key, never returned in GET
+	Active    bool      `json:"active"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// WebhookDelivery tracks one attempted delivery of an event to a webhook URL.
+type WebhookDelivery struct {
+	ID        string     `json:"id"`
+	WebhookID string     `json:"webhook_id"`
+	EventType string     `json:"event_type"`
+	Payload   string     `json:"payload"`          // JSON-encoded event body
+	Status    string     `json:"status"`           // pending|delivered|failed|dead
+	Attempts  int        `json:"attempts"`
+	NextRetry *time.Time `json:"next_retry,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+}
+
+// Webhook delivery statuses
+const (
+	DeliveryPending   = "pending"
+	DeliveryDelivered = "delivered"
+	DeliveryFailed    = "failed"
+	DeliveryDead      = "dead" // max retries exhausted
+)
+
+// DeepCopyWebhook returns a deep copy of a Webhook, including the Events slice.
+func DeepCopyWebhook(w *Webhook) *Webhook {
+	cp := *w
+	if w.Events != nil {
+		cp.Events = make([]string, len(w.Events))
+		copy(cp.Events, w.Events)
+	}
+	return &cp
 }
