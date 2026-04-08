@@ -602,6 +602,61 @@ func (g *Gateway) handleStreamTask(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleCreateWebhook registers a new webhook for an org.
+// POST /api/v1/orgs/{orgID}/webhooks
+func (g *Gateway) handleCreateWebhook(w http.ResponseWriter, r *http.Request) {
+	orgID := r.PathValue("orgID")
+	var req struct {
+		URL    string   `json:"url"`
+		Events []string `json:"events"`
+		Secret string   `json:"secret"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.URL == "" || len(req.Events) == 0 {
+		writeError(w, http.StatusBadRequest, "url and events are required")
+		return
+	}
+	hook, err := g.deps.Webhook.CreateWebhook(orgID, req.URL, req.Events, req.Secret)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create webhook")
+		return
+	}
+	hook.Secret = "" // never return secret
+	writeJSON(w, http.StatusCreated, hook)
+}
+
+// handleListWebhooks returns all webhooks for an org.
+// GET /api/v1/orgs/{orgID}/webhooks
+func (g *Gateway) handleListWebhooks(w http.ResponseWriter, r *http.Request) {
+	orgID := r.PathValue("orgID")
+	writeJSON(w, http.StatusOK, g.deps.Webhook.ListWebhooks(orgID))
+}
+
+// handleDeleteWebhook removes a webhook by ID.
+// DELETE /api/v1/orgs/{orgID}/webhooks/{webhookID}
+func (g *Gateway) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
+	webhookID := r.PathValue("webhookID")
+	if err := g.deps.Webhook.DeleteWebhook(webhookID); err != nil {
+		if err == store.ErrNotFound {
+			writeError(w, http.StatusNotFound, "webhook not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to delete webhook")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleListWebhookDeliveries returns deliveries for a webhook.
+// GET /api/v1/orgs/{orgID}/webhooks/{webhookID}/deliveries
+func (g *Gateway) handleListWebhookDeliveries(w http.ResponseWriter, r *http.Request) {
+	webhookID := r.PathValue("webhookID")
+	writeJSON(w, http.StatusOK, g.deps.Webhook.ListDeliveries(webhookID))
+}
+
 // handleResubscribeStream returns the result of a completed/failed task as a single SSE event.
 // GET /api/v1/tasks/{id}/stream
 func (g *Gateway) handleResubscribeStream(w http.ResponseWriter, r *http.Request) {

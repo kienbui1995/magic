@@ -17,6 +17,7 @@ import (
 	"github.com/kienbui1995/magic/core/internal/registry"
 	"github.com/kienbui1995/magic/core/internal/router"
 	"github.com/kienbui1995/magic/core/internal/store"
+	"github.com/kienbui1995/magic/core/internal/webhook"
 )
 
 // Deps holds all dependencies for the Gateway.
@@ -32,6 +33,7 @@ type Deps struct {
 	OrgMgr       *orgmgr.Manager
 	Knowledge    *knowledge.Hub
 	Dispatcher   *dispatcher.Dispatcher
+	Webhook      *webhook.Manager
 }
 
 // Gateway is the HTTP entry point for the MagiC server.
@@ -120,6 +122,12 @@ func (g *Gateway) Handler() http.Handler {
 
 	// Audit log (admin auth — MAGIC_API_KEY)
 	mux.HandleFunc("GET /api/v1/orgs/{orgID}/audit", g.handleQueryAudit)
+
+	// Webhooks
+	mux.HandleFunc("POST /api/v1/orgs/{orgID}/webhooks", g.handleCreateWebhook)
+	mux.HandleFunc("GET /api/v1/orgs/{orgID}/webhooks", g.handleListWebhooks)
+	mux.HandleFunc("DELETE /api/v1/orgs/{orgID}/webhooks/{webhookID}", g.handleDeleteWebhook)
+	mux.HandleFunc("GET /api/v1/orgs/{orgID}/webhooks/{webhookID}/deliveries", g.handleListWebhookDeliveries)
 
 	var handler http.Handler = mux
 	handler = requestIDMiddleware(handler)

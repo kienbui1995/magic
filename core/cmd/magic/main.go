@@ -24,6 +24,7 @@ import (
 	"github.com/kienbui1995/magic/core/internal/registry"
 	"github.com/kienbui1995/magic/core/internal/router"
 	"github.com/kienbui1995/magic/core/internal/store"
+	"github.com/kienbui1995/magic/core/internal/webhook"
 )
 
 func main() {
@@ -123,6 +124,10 @@ func runServer() {
 	auditLogger := audit.New(s, bus)
 	auditLogger.SubscribeToEvents()
 
+	// Webhook manager — subscribes to events and delivers webhooks
+	wh := webhook.New(s, bus)
+	wh.Start()
+
 	gw := gateway.New(gateway.Deps{
 		Registry:     reg,
 		Router:       rt,
@@ -135,6 +140,7 @@ func runServer() {
 		OrgMgr:       mgr,
 		Knowledge:    kb,
 		Dispatcher:   disp,
+		Webhook:      wh,
 	})
 
 	if s.HasAnyWorkerTokens() {
@@ -178,6 +184,7 @@ func runServer() {
 		fmt.Println("  POST /api/v1/knowledge/search/semantic — Semantic search")
 		fmt.Println("  GET  /api/v1/metrics           — View stats")
 		fmt.Println("  GET  /health                   — Health check")
+		fmt.Println("  POST /api/v1/orgs/{orgID}/webhooks — Register webhook")
 
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
