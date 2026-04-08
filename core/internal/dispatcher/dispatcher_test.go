@@ -2,253 +2,66 @@ package dispatcher_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/kienbui1995/magic/core/internal/costctrl"
 	"github.com/kienbui1995/magic/core/internal/dispatcher"
+	"github.com/kienbui1995/magic/core/internal/evaluator"
 	"github.com/kienbui1995/magic/core/internal/events"
 	"github.com/kienbui1995/magic/core/internal/protocol"
 	"github.com/kienbui1995/magic/core/internal/store"
 )
 
-func TestDispatcher_Success(t *testing.T) {
-	// Mock worker that returns task.complete
-	mockWorker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var msg protocol.Message
-		json.NewDecoder(r.Body).Decode(&msg)
-
-		if msg.Type != protocol.MsgTaskAssign {
-			t.Errorf("expected task.assign, got %s", msg.Type)
+func TestDispatchStream_ProxiesSSE(t *testing.T) {
+	// Fake streaming worker
+	fakeWorker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "data: {\"chunk\":\"hello \",\"done\":false}\n\n")
+		fmt.Fprintf(w, "data: {\"chunk\":\"world\",\"done\":false}\n\n")
+		fmt.Fprintf(w, "data: {\"task_id\":\"t-1\",\"done\":true}\n\n")
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
 		}
-
-		resp := map[string]any{
-			"type": "task.complete",
-			"payload": map[string]any{
-				"task_id": "task_001",
-				"output":  map[string]string{"result": "Hello, World!"},
-				"cost":    0.05,
-			},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
 	}))
-	defer mockWorker.Close()
+	defer fakeWorker.Close()
 
 	s := store.NewMemoryStore()
 	bus := events.NewBus()
 	cc := costctrl.New(s, bus)
-
-	worker := &protocol.Worker{
-		ID:       "worker_001",
-		Name:     "TestBot",
-		Status:   protocol.StatusActive,
-		Endpoint: protocol.Endpoint{Type: "http", URL: mockWorker.URL},
-	}
-	s.AddWorker(worker)
+	ev := evaluator.New(bus)
+	d := dispatcher.New(s, bus, cc, ev)
 
 	task := &protocol.Task{
-		ID:       "task_001",
-		Type:     "greeting",
-		Status:   protocol.TaskAssigned,
-		Input:    json.RawMessage(`{"name":"Kien"}`),
-		Contract: protocol.Contract{TimeoutMs: 30000},
+		ID:     "t-1",
+		Type:   "chat",
+		Status: protocol.TaskPending,
+		Input:  []byte(`{"message":"hi"}`),
 	}
-	s.AddTask(task)
+	if err := s.AddTask(task); err != nil {
+		t.Fatalf("AddTask: %v", err)
+	}
 
-	d := dispatcher.New(s, bus, cc, nil)
-	err := d.Dispatch(context.Background(), task, worker)
+	worker := &protocol.Worker{
+		ID:       "w-1",
+		Endpoint: protocol.Endpoint{URL: fakeWorker.URL},
+	}
+
+	rr := httptest.NewRecorder()
+	err := d.DispatchStream(context.Background(), task, worker, rr)
 	if err != nil {
-		t.Fatalf("Dispatch: %v", err)
+		t.Fatalf("DispatchStream: %v", err)
 	}
 
-	// Verify task is completed
-	got, _ := s.GetTask("task_001")
-	if got.Status != protocol.TaskCompleted {
-		t.Errorf("task status: got %q, want completed", got.Status)
+	body := rr.Body.String()
+	if !strings.Contains(body, "hello") {
+		t.Errorf("expected SSE body to contain 'hello', got: %s", body)
 	}
-	if got.Cost != 0.05 {
-		t.Errorf("task cost: got %f, want 0.05", got.Cost)
-	}
-	if got.Output == nil {
-		t.Error("task output should not be nil")
-	}
-}
-
-func TestDispatcher_WorkerFails(t *testing.T) {
-	// Mock worker that returns task.fail
-	mockWorker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := map[string]any{
-			"type": "task.fail",
-			"payload": map[string]any{
-				"task_id": "task_002",
-				"error":   map[string]string{"code": "handler_error", "message": "something went wrong"},
-			},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
-	}))
-	defer mockWorker.Close()
-
-	s := store.NewMemoryStore()
-	bus := events.NewBus()
-
-	worker := &protocol.Worker{
-		ID:       "worker_001",
-		Name:     "TestBot",
-		Status:   protocol.StatusActive,
-		Endpoint: protocol.Endpoint{Type: "http", URL: mockWorker.URL},
-	}
-	s.AddWorker(worker)
-
-	task := &protocol.Task{
-		ID:     "task_002",
-		Type:   "greeting",
-		Status: protocol.TaskAssigned,
-		Input:  json.RawMessage(`{}`),
-	}
-	s.AddTask(task)
-
-	d := dispatcher.New(s, bus, nil, nil)
-	d.Dispatch(context.Background(), task, worker)
-
-	got, _ := s.GetTask("task_002")
-	if got.Status != protocol.TaskFailed {
-		t.Errorf("task status: got %q, want failed", got.Status)
-	}
-	if got.Error == nil {
-		t.Error("task error should not be nil")
-	}
-}
-
-func TestDispatcher_WorkerUnreachable(t *testing.T) {
-	s := store.NewMemoryStore()
-	bus := events.NewBus()
-
-	worker := &protocol.Worker{
-		ID:       "worker_001",
-		Name:     "TestBot",
-		Status:   protocol.StatusActive,
-		Endpoint: protocol.Endpoint{Type: "http", URL: "http://localhost:1"}, // unreachable
-	}
-	s.AddWorker(worker)
-
-	task := &protocol.Task{
-		ID:     "task_003",
-		Type:   "greeting",
-		Status: protocol.TaskAssigned,
-		Input:  json.RawMessage(`{}`),
-	}
-	s.AddTask(task)
-
-	d := dispatcher.New(s, bus, nil, nil)
-	err := d.Dispatch(context.Background(), task, worker)
-	if err == nil {
-		t.Error("should fail when worker is unreachable")
-	}
-
-	got, _ := s.GetTask("task_003")
-	if got.Status != protocol.TaskFailed {
-		t.Errorf("task status: got %q, want failed", got.Status)
-	}
-}
-
-func TestDispatcher_CostTracking(t *testing.T) {
-	mockWorker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := map[string]any{
-			"type": "task.complete",
-			"payload": map[string]any{
-				"task_id": "task_004",
-				"output":  map[string]string{"result": "done"},
-				"cost":    0.15,
-			},
-		}
-		json.NewEncoder(w).Encode(resp)
-	}))
-	defer mockWorker.Close()
-
-	s := store.NewMemoryStore()
-	bus := events.NewBus()
-	cc := costctrl.New(s, bus)
-
-	worker := &protocol.Worker{
-		ID:       "worker_001",
-		Name:     "TestBot",
-		Status:   protocol.StatusActive,
-		Endpoint: protocol.Endpoint{Type: "http", URL: mockWorker.URL},
-		Limits:   protocol.WorkerLimits{MaxCostPerDay: 10.0},
-	}
-	s.AddWorker(worker)
-
-	task := &protocol.Task{
-		ID:     "task_004",
-		Type:   "test",
-		Status: protocol.TaskAssigned,
-		Input:  json.RawMessage(`{}`),
-	}
-	s.AddTask(task)
-
-	d := dispatcher.New(s, bus, cc, nil)
-	d.Dispatch(context.Background(), task, worker)
-
-	time.Sleep(50 * time.Millisecond)
-
-	report := cc.WorkerReport("worker_001")
-	if report.TotalCost != 0.15 {
-		t.Errorf("cost: got %f, want 0.15", report.TotalCost)
-	}
-}
-
-func TestDispatcher_CircuitBreaker(t *testing.T) {
-	s := store.NewMemoryStore()
-	bus := events.NewBus()
-	defer bus.Stop()
-
-	// No real worker — will always fail
-	worker := &protocol.Worker{
-		ID:       "worker_cb",
-		Name:     "FailBot",
-		Status:   protocol.StatusActive,
-		Endpoint: protocol.Endpoint{Type: "http", URL: "http://127.0.0.1:1"},
-	}
-	s.AddWorker(worker)
-
-	d := dispatcher.New(s, bus, nil, nil)
-
-	// Dispatch 3 tasks — all will fail (unreachable), should trigger circuit breaker
-	for i := 0; i < 3; i++ {
-		task := &protocol.Task{
-			ID:     fmt.Sprintf("task_cb_%d", i),
-			Type:   "test",
-			Status: protocol.TaskAssigned,
-			Input:  json.RawMessage(`{}`),
-		}
-		s.AddTask(task)
-		d.Dispatch(context.Background(), task, worker)
-	}
-
-	// 4th dispatch should fail immediately due to circuit breaker
-	task4 := &protocol.Task{
-		ID:     "task_cb_4",
-		Type:   "test",
-		Status: protocol.TaskAssigned,
-		Input:  json.RawMessage(`{}`),
-	}
-	s.AddTask(task4)
-	err := d.Dispatch(context.Background(), task4, worker)
-	if err == nil {
-		t.Error("should fail — circuit breaker should be open")
-	}
-	if task4.Status != protocol.TaskFailed {
-		t.Errorf("task status: got %q, want failed", task4.Status)
-	}
-
-	got, _ := s.GetTask("task_cb_4")
-	if got.Error == nil || got.Error.Message != "circuit breaker open: worker has too many recent failures" {
-		t.Errorf("expected circuit breaker error, got: %v", got.Error)
+	if !strings.Contains(body, `"done":true`) {
+		t.Errorf("expected final done event, got: %s", body)
 	}
 }

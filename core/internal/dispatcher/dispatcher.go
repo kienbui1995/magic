@@ -30,23 +30,25 @@ type circuitState struct {
 }
 
 type Dispatcher struct {
-	store     store.Store
-	bus       *events.Bus
-	costCtrl  *costctrl.Controller
-	evaluator *evaluator.Evaluator
-	client    *http.Client
-	circuits  map[string]*circuitState
-	circuitMu sync.Mutex
+	store        store.Store
+	bus          *events.Bus
+	costCtrl     *costctrl.Controller
+	evaluator    *evaluator.Evaluator
+	client       *http.Client
+	streamClient *http.Client
+	circuits     map[string]*circuitState
+	circuitMu    sync.Mutex
 }
 
 func New(s store.Store, bus *events.Bus, cc *costctrl.Controller, ev *evaluator.Evaluator) *Dispatcher {
 	return &Dispatcher{
-		store:     s,
-		bus:       bus,
-		costCtrl:  cc,
-		evaluator: ev,
-		client:    &http.Client{Timeout: 60 * time.Second},
-		circuits:  make(map[string]*circuitState),
+		store:        s,
+		bus:          bus,
+		costCtrl:     cc,
+		evaluator:    ev,
+		client:       &http.Client{Timeout: 60 * time.Second},
+		streamClient: &http.Client{Timeout: 0}, // no timeout for SSE streaming
+		circuits:     make(map[string]*circuitState),
 	}
 }
 
@@ -319,4 +321,92 @@ func (d *Dispatcher) recordFailure(workerID string) {
 	if cs.failures >= circuitFailThreshold {
 		cs.openUntil = time.Now().Add(circuitOpenDuration)
 	}
+}
+
+// DispatchStream dispatches a task to a streaming worker and proxies the SSE
+// response back to w. The worker exposes a POST endpoint that returns
+// Content-Type: text/event-stream.
+//
+// The caller must set SSE response headers and remove the write deadline BEFORE
+// calling DispatchStream. w must implement http.Flusher.
+func (d *Dispatcher) DispatchStream(ctx context.Context, task *protocol.Task, worker *protocol.Worker, w http.ResponseWriter) error {
+	if err := validateEndpointURL(worker.Endpoint.URL); err != nil {
+		d.handleFailure(task, worker, fmt.Sprintf("invalid endpoint: %v", err))
+		return err
+	}
+
+	// Build task.assign payload (same structure as regular Dispatch)
+	assignPayload, _ := json.Marshal(protocol.TaskAssignPayload{
+		TaskID:   task.ID,
+		TaskType: task.Type,
+		Priority: task.Priority,
+		Input:    task.Input,
+		Contract: task.Contract,
+		Context:  task.Context,
+	})
+	msg := protocol.NewMessage(protocol.MsgTaskAssign, "org", worker.ID, assignPayload)
+	body, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("marshal task.assign: %w", err)
+	}
+
+	task.Status = protocol.TaskInProgress
+	d.store.UpdateTask(task) //nolint:errcheck
+
+	// POST to worker's streaming endpoint
+	req, err := http.NewRequestWithContext(ctx, "POST", worker.Endpoint.URL, bytes.NewReader(body))
+	if err != nil {
+		d.handleFailure(task, worker, err.Error())
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+
+	resp, err := d.streamClient.Do(req)
+	if err != nil {
+		d.handleFailure(task, worker, err.Error())
+		return fmt.Errorf("worker request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		d.handleFailure(task, worker, fmt.Sprintf("worker returned status %d", resp.StatusCode))
+		return fmt.Errorf("worker returned status %d", resp.StatusCode)
+	}
+
+	// Pipe SSE from worker to client
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		return fmt.Errorf("ResponseWriter does not support flushing")
+	}
+
+	buf := make([]byte, 4096)
+	for {
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
+				break // client disconnected
+			}
+			flusher.Flush()
+		}
+		if readErr != nil {
+			break
+		}
+	}
+
+	task.Status = protocol.TaskCompleted
+	now := time.Now()
+	task.CompletedAt = &now
+	d.store.UpdateTask(task) //nolint:errcheck
+
+	d.bus.Publish(events.Event{
+		Type:   "task.completed",
+		Source: "dispatcher",
+		Payload: map[string]any{
+			"task_id":   task.ID,
+			"worker_id": worker.ID,
+			"task_type": task.Type,
+		},
+	})
+	return nil
 }
