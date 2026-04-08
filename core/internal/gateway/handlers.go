@@ -311,6 +311,59 @@ func (g *Gateway) handleSearchKnowledge(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, paginate(entries, limit, offset))
 }
 
+func (g *Gateway) handleAddEmbedding(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		Vector   []float32      `json:"vector"`
+		Metadata map[string]any `json:"metadata"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.Vector) == 0 {
+		writeError(w, http.StatusBadRequest, "vector is required")
+		return
+	}
+	if err := g.deps.Knowledge.AddEmbedding(id, req.Vector, req.Metadata); err != nil {
+		if strings.Contains(err.Error(), "pgvector") {
+			writeError(w, http.StatusNotImplemented, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to store embedding")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (g *Gateway) handleSemanticSearch(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		QueryVector []float32 `json:"query_vector"`
+		TopK        int       `json:"top_k"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.QueryVector) == 0 {
+		writeError(w, http.StatusBadRequest, "query_vector is required")
+		return
+	}
+	if req.TopK <= 0 {
+		req.TopK = 10
+	}
+	results, err := g.deps.Knowledge.SemanticSearch(req.QueryVector, req.TopK)
+	if err != nil {
+		if strings.Contains(err.Error(), "pgvector") {
+			writeError(w, http.StatusNotImplemented, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "semantic search failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, results)
+}
+
 // createTokenRequest is the body for POST /api/v1/orgs/{orgID}/tokens.
 type createTokenRequest struct {
 	Name           string `json:"name"`

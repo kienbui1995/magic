@@ -105,6 +105,8 @@ func (g *Gateway) Handler() http.Handler {
 	// Knowledge
 	mux.HandleFunc("POST /api/v1/knowledge", g.handleAddKnowledge)
 	mux.HandleFunc("GET /api/v1/knowledge", g.handleSearchKnowledge)
+	mux.HandleFunc("POST /api/v1/knowledge/{id}/embedding", g.handleAddEmbedding)
+	mux.HandleFunc("POST /api/v1/knowledge/search/semantic", g.handleSemanticSearch)
 
 	// Token management (admin auth — MAGIC_API_KEY) + per-org rate limiting
 	mux.Handle("POST /api/v1/orgs/{orgID}/tokens",

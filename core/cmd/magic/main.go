@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -89,6 +90,19 @@ func runServer() {
 		fmt.Println("  Storage: in-memory (set MAGIC_STORE=path.db or MAGIC_POSTGRES_URL for persistence)")
 	}
 
+	// VectorStore — only available with PostgreSQL backend
+	var vs store.VectorStore
+	if pgStore, ok := s.(*store.PostgreSQLStore); ok {
+		dim := 1536
+		if d := os.Getenv("MAGIC_PGVECTOR_DIM"); d != "" {
+			if parsed, err := strconv.Atoi(d); err == nil && parsed > 0 {
+				dim = parsed
+			}
+		}
+		vs = store.NewPGVectorStore(pgStore.Pool(), dim)
+		fmt.Println("  Semantic search: enabled (pgvector)")
+	}
+
 	// Core
 	bus := events.NewBus()
 	reg := registry.New(s, bus)
@@ -103,7 +117,7 @@ func runServer() {
 	disp := dispatcher.New(s, bus, cc, ev)
 	orch := orchestrator.New(s, rt, bus, disp)
 	mgr := orgmgr.New(s, bus)
-	kb := knowledge.New(s, bus, nil)
+	kb := knowledge.New(s, bus, vs)
 
 	// Audit logger — subscribes to events and records them
 	auditLogger := audit.New(s, bus)
@@ -160,6 +174,8 @@ func runServer() {
 		fmt.Println("  GET  /api/v1/costs             — Cost report")
 		fmt.Println("  POST /api/v1/knowledge         — Add knowledge entry")
 		fmt.Println("  GET  /api/v1/knowledge         — Search/list knowledge")
+		fmt.Println("  POST /api/v1/knowledge/{id}/embedding — Store embedding")
+		fmt.Println("  POST /api/v1/knowledge/search/semantic — Semantic search")
 		fmt.Println("  GET  /api/v1/metrics           — View stats")
 		fmt.Println("  GET  /health                   — Health check")
 
