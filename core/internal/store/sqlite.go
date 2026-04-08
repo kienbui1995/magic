@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	_ "modernc.org/sqlite"
 
@@ -32,6 +33,8 @@ func NewSQLiteStore(path string) (*SQLiteStore, error) {
 		`CREATE TABLE IF NOT EXISTS knowledge (id TEXT PRIMARY KEY, data TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS worker_tokens (id TEXT PRIMARY KEY, data TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS audit_log (id TEXT PRIMARY KEY, data TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS webhooks (id TEXT PRIMARY KEY, data TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS webhook_deliveries (id TEXT PRIMARY KEY, data TEXT NOT NULL)`,
 	}
 	for _, ddl := range tables {
 		if _, err := db.Exec(ddl); err != nil {
@@ -408,6 +411,59 @@ func (s *SQLiteStore) FindWorkersByCapabilityAndOrg(capability, orgID string) []
 	for _, w := range all {
 		if w.OrgID == orgID {
 			result = append(result, w)
+		}
+	}
+	return result
+}
+
+// --- Webhook methods ---
+func (s *SQLiteStore) AddWebhook(w *protocol.Webhook) error { return putJSON(s.db, "webhooks", w.ID, w) }
+func (s *SQLiteStore) GetWebhook(id string) (*protocol.Webhook, error) {
+	return getJSON[protocol.Webhook](s.db, "webhooks", id)
+}
+func (s *SQLiteStore) UpdateWebhook(w *protocol.Webhook) error { return putJSON(s.db, "webhooks", w.ID, w) }
+func (s *SQLiteStore) DeleteWebhook(id string) error           { return deleteRow(s.db, "webhooks", id) }
+func (s *SQLiteStore) ListWebhooksByOrg(orgID string) []*protocol.Webhook {
+	all, _ := listJSON[protocol.Webhook](s.db, "webhooks")
+	var result []*protocol.Webhook
+	for _, w := range all {
+		if w.OrgID == orgID {
+			result = append(result, w)
+		}
+	}
+	return result
+}
+func (s *SQLiteStore) FindWebhooksByEvent(eventType string) []*protocol.Webhook {
+	all, _ := listJSON[protocol.Webhook](s.db, "webhooks")
+	var result []*protocol.Webhook
+	for _, w := range all {
+		if !w.Active {
+			continue
+		}
+		for _, e := range w.Events {
+			if e == eventType {
+				result = append(result, w)
+				break
+			}
+		}
+	}
+	return result
+}
+func (s *SQLiteStore) AddWebhookDelivery(d *protocol.WebhookDelivery) error {
+	return putJSON(s.db, "webhook_deliveries", d.ID, d)
+}
+func (s *SQLiteStore) UpdateWebhookDelivery(d *protocol.WebhookDelivery) error {
+	return putJSON(s.db, "webhook_deliveries", d.ID, d)
+}
+func (s *SQLiteStore) ListPendingWebhookDeliveries() []*protocol.WebhookDelivery {
+	all, _ := listJSON[protocol.WebhookDelivery](s.db, "webhook_deliveries")
+	now := time.Now()
+	var result []*protocol.WebhookDelivery
+	for _, d := range all {
+		if d.Status == protocol.DeliveryPending || d.Status == protocol.DeliveryFailed {
+			if d.NextRetry == nil || d.NextRetry.Before(now) {
+				result = append(result, d)
+			}
 		}
 	}
 	return result

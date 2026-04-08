@@ -448,5 +448,36 @@ func (s *PostgreSQLStore) QueryAudit(filter AuditFilter) []*protocol.AuditEntry 
 	return result
 }
 
+// --- Webhook stubs (full implementation in Phase 3b Task 4) ---
+func (s *PostgreSQLStore) AddWebhook(w *protocol.Webhook) error { return pgPut(s.pool, "webhooks", w.ID, w) }
+func (s *PostgreSQLStore) GetWebhook(id string) (*protocol.Webhook, error) {
+	return pgGet[protocol.Webhook](s.pool, "webhooks", id)
+}
+func (s *PostgreSQLStore) UpdateWebhook(w *protocol.Webhook) error { return pgPut(s.pool, "webhooks", w.ID, w) }
+func (s *PostgreSQLStore) DeleteWebhook(id string) error           { return pgDelete(s.pool, "webhooks", id) }
+func (s *PostgreSQLStore) ListWebhooksByOrg(orgID string) []*protocol.Webhook {
+	hooks, _ := pgList[protocol.Webhook](s.pool, "SELECT data FROM webhooks WHERE data->>'org_id' = $1 ORDER BY id", orgID)
+	return hooks
+}
+func (s *PostgreSQLStore) FindWebhooksByEvent(eventType string) []*protocol.Webhook {
+	hooks, _ := pgList[protocol.Webhook](s.pool,
+		`SELECT data FROM webhooks WHERE data->>'active' = 'true' AND data->'events' @> $1::jsonb`,
+		`["`+eventType+`"]`)
+	return hooks
+}
+func (s *PostgreSQLStore) AddWebhookDelivery(d *protocol.WebhookDelivery) error {
+	return pgPut(s.pool, "webhook_deliveries", d.ID, d)
+}
+func (s *PostgreSQLStore) UpdateWebhookDelivery(d *protocol.WebhookDelivery) error {
+	return pgPut(s.pool, "webhook_deliveries", d.ID, d)
+}
+func (s *PostgreSQLStore) ListPendingWebhookDeliveries() []*protocol.WebhookDelivery {
+	deliveries, _ := pgList[protocol.WebhookDelivery](s.pool,
+		`SELECT data FROM webhook_deliveries
+         WHERE data->>'status' IN ('pending', 'failed')
+         AND (data->>'next_retry' IS NULL OR (data->>'next_retry')::timestamptz <= NOW())`)
+	return deliveries
+}
+
 // Interface compliance check — compile-time assertion.
 var _ Store = (*PostgreSQLStore)(nil)

@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/kienbui1995/magic/core/internal/protocol"
 )
@@ -14,28 +15,32 @@ const maxAuditEntries = 10_000
 // MemoryStore is an in-memory implementation of the Store interface.
 // All methods use deep copies to prevent external mutations.
 type MemoryStore struct {
-	mu         sync.RWMutex
-	workers    map[string]*protocol.Worker
-	tasks      map[string]*protocol.Task
-	workflows  map[string]*protocol.Workflow
-	teams      map[string]*protocol.Team
-	knowledge  map[string]*protocol.KnowledgeEntry
-	tokens     map[string]*protocol.WorkerToken
-	tokenIndex map[string]string // hash -> token ID
-	auditLog   []*protocol.AuditEntry
-	hasTokens  bool
+	mu                sync.RWMutex
+	workers           map[string]*protocol.Worker
+	tasks             map[string]*protocol.Task
+	workflows         map[string]*protocol.Workflow
+	teams             map[string]*protocol.Team
+	knowledge         map[string]*protocol.KnowledgeEntry
+	tokens            map[string]*protocol.WorkerToken
+	tokenIndex        map[string]string // hash -> token ID
+	auditLog          []*protocol.AuditEntry
+	hasTokens         bool
+	webhooks          map[string]*protocol.Webhook
+	webhookDeliveries map[string]*protocol.WebhookDelivery
 }
 
 // NewMemoryStore creates a new in-memory store.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		workers:    make(map[string]*protocol.Worker),
-		tasks:      make(map[string]*protocol.Task),
-		workflows:  make(map[string]*protocol.Workflow),
-		teams:      make(map[string]*protocol.Team),
-		knowledge:  make(map[string]*protocol.KnowledgeEntry),
-		tokens:     make(map[string]*protocol.WorkerToken),
-		tokenIndex: make(map[string]string),
+		workers:           make(map[string]*protocol.Worker),
+		tasks:             make(map[string]*protocol.Task),
+		workflows:         make(map[string]*protocol.Workflow),
+		teams:             make(map[string]*protocol.Team),
+		knowledge:         make(map[string]*protocol.KnowledgeEntry),
+		tokens:            make(map[string]*protocol.WorkerToken),
+		tokenIndex:        make(map[string]string),
+		webhooks:          make(map[string]*protocol.Webhook),
+		webhookDeliveries: make(map[string]*protocol.WebhookDelivery),
 	}
 }
 
@@ -512,5 +517,111 @@ func (s *MemoryStore) FindWorkersByCapabilityAndOrg(capability, orgID string) []
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result
+}
+
+// --- Webhooks ---
+
+func (s *MemoryStore) AddWebhook(w *protocol.Webhook) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.webhooks[w.ID] = protocol.DeepCopyWebhook(w)
+	return nil
+}
+
+func (s *MemoryStore) GetWebhook(id string) (*protocol.Webhook, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	w, ok := s.webhooks[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return protocol.DeepCopyWebhook(w), nil
+}
+
+func (s *MemoryStore) UpdateWebhook(w *protocol.Webhook) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.webhooks[w.ID]; !ok {
+		return ErrNotFound
+	}
+	s.webhooks[w.ID] = protocol.DeepCopyWebhook(w)
+	return nil
+}
+
+func (s *MemoryStore) DeleteWebhook(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.webhooks[id]; !ok {
+		return ErrNotFound
+	}
+	delete(s.webhooks, id)
+	return nil
+}
+
+func (s *MemoryStore) ListWebhooksByOrg(orgID string) []*protocol.Webhook {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var result []*protocol.Webhook
+	for _, w := range s.webhooks {
+		if w.OrgID == orgID {
+			result = append(result, protocol.DeepCopyWebhook(w))
+		}
+	}
+	return result
+}
+
+func (s *MemoryStore) FindWebhooksByEvent(eventType string) []*protocol.Webhook {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var result []*protocol.Webhook
+	for _, w := range s.webhooks {
+		if !w.Active {
+			continue
+		}
+		for _, e := range w.Events {
+			if e == eventType {
+				result = append(result, protocol.DeepCopyWebhook(w))
+				break
+			}
+		}
+	}
+	return result
+}
+
+// --- Webhook Deliveries ---
+
+func (s *MemoryStore) AddWebhookDelivery(d *protocol.WebhookDelivery) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := *d
+	s.webhookDeliveries[d.ID] = &cp
+	return nil
+}
+
+func (s *MemoryStore) UpdateWebhookDelivery(d *protocol.WebhookDelivery) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.webhookDeliveries[d.ID]; !ok {
+		return ErrNotFound
+	}
+	cp := *d
+	s.webhookDeliveries[d.ID] = &cp
+	return nil
+}
+
+func (s *MemoryStore) ListPendingWebhookDeliveries() []*protocol.WebhookDelivery {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	now := time.Now()
+	var result []*protocol.WebhookDelivery
+	for _, d := range s.webhookDeliveries {
+		if d.Status == protocol.DeliveryPending || d.Status == protocol.DeliveryFailed {
+			if d.NextRetry == nil || d.NextRetry.Before(now) {
+				cp := *d
+				result = append(result, &cp)
+			}
+		}
+	}
 	return result
 }
