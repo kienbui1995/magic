@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -541,4 +542,99 @@ func (g *Gateway) handleQueryAudit(w http.ResponseWriter, r *http.Request) {
 		"limit":   limit,
 		"offset":  offset,
 	})
+}
+
+// handleStreamTask submits a task and streams the result back via SSE.
+// POST /api/v1/tasks/stream
+func (g *Gateway) handleStreamTask(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Type    string               `json:"type"`
+		Input   json.RawMessage      `json:"input"`
+		Context protocol.TaskContext `json:"context"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Type == "" {
+		writeError(w, http.StatusBadRequest, "type is required")
+		return
+	}
+
+	task := &protocol.Task{
+		ID:       protocol.GenerateID("t"),
+		Type:     req.Type,
+		Status:   protocol.TaskPending,
+		Input:    req.Input,
+		Context:  req.Context,
+		Priority: protocol.PriorityNormal,
+	}
+
+	// Route to a worker (populates task.AssignedWorker and sets status to TaskAssigned)
+	worker, err := g.deps.Router.RouteTask(task)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "no worker available: "+err.Error())
+		return
+	}
+
+	if err := g.deps.Store.AddTask(task); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create task")
+		return
+	}
+
+	// Set SSE headers and remove write deadline for streaming
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	rc := http.NewResponseController(w)
+	if err := rc.SetWriteDeadline(time.Time{}); err != nil {
+		// Not all ResponseWriters support this — log but continue
+		_ = err
+	}
+
+	if err := g.deps.Dispatcher.DispatchStream(r.Context(), task, worker, w); err != nil {
+		// Write SSE error event — headers already sent, so can't change status code
+		fmt.Fprintf(w, "data: {\"error\":%q,\"done\":true}\n\n", err.Error())
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}
+}
+
+// handleResubscribeStream returns the result of a completed/failed task as a single SSE event.
+// GET /api/v1/tasks/{id}/stream
+func (g *Gateway) handleResubscribeStream(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	task, err := g.deps.Store.GetTask(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	rc := http.NewResponseController(w)
+	rc.SetWriteDeadline(time.Time{}) //nolint:errcheck
+
+	switch task.Status {
+	case protocol.TaskCompleted:
+		output, _ := json.Marshal(task.Output)
+		fmt.Fprintf(w, "data: {\"chunk\":%s,\"task_id\":%q,\"done\":true}\n\n", output, id)
+	case protocol.TaskFailed:
+		msg := "task failed"
+		if task.Error != nil {
+			msg = task.Error.Message
+		}
+		fmt.Fprintf(w, "data: {\"error\":%q,\"done\":true}\n\n", msg)
+	default:
+		writeError(w, http.StatusAccepted, "task is still running; poll GET /api/v1/tasks/"+id)
+		return
+	}
+
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
 }

@@ -83,6 +83,9 @@ func (g *Gateway) Handler() http.Handler {
 	// Tasks
 	mux.Handle("POST /api/v1/tasks", taskRL(http.HandlerFunc(g.handleSubmitTask)))
 	mux.HandleFunc("GET /api/v1/tasks", g.handleListTasks)
+	// Streaming tasks (must be before /tasks/{id} to avoid ambiguity)
+	mux.Handle("POST /api/v1/tasks/stream", taskRL(http.HandlerFunc(g.handleStreamTask)))
+	mux.HandleFunc("GET /api/v1/tasks/{id}/stream", g.handleResubscribeStream)
 	mux.HandleFunc("GET /api/v1/tasks/{id}", g.handleGetTask)
 
 	// Workflows
