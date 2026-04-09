@@ -3,6 +3,11 @@
   "version": "0.3.2",
   "description": "Kubernetes for AI agents — manage fleets of AI workers",
   "type": "module",
+  "scripts": {
+    "docs:dev": "vitepress dev docs-site",
+    "docs:build": "vitepress build docs-site",
+    "docs:preview": "vitepress preview docs-site"
+  },
   "bin": {
     "magic-claw": "./bin/magic-claw.js",
     "magic": "./bin/magic-claw.js"
@@ -14,6 +19,16 @@
     "type": "git",
     "url": "https://github.com/kienbui1995/magic.git"
   },
-  "keywords": ["ai", "agents", "ai-agents", "orchestration", "llm", "workers"],
-  "license": "Apache-2.0"
+  "keywords": [
+    "ai",
+    "agents",
+    "ai-agents",
+    "orchestration",
+    "llm",
+    "workers"
+  ],
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "vitepress": "^1.6.4"
+  }
 }
