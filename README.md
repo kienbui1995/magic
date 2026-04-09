@@ -23,7 +23,7 @@ ContentBot  SEOBot  LeadBot  CodeBot
 ### Option A: pip install (fastest)
 
 ```bash
-pip install magic-claw
+pip install magic-ai-sdk
 ```
 
 Then create `worker.py`:
@@ -330,7 +330,7 @@ magic/
 │       ├── knowledge/              # Knowledge hub
 │       ├── webhook/                # At-least-once webhook delivery
 │       └── audit/                  # Structured audit log
-├── sdk/python/                     # Python SDK (pip install magic-claw)
+├── sdk/python/                     # Python SDK (pip install magic-ai-sdk)
 │   ├── magic_ai_sdk/
 │   │   ├── worker.py               # Worker class
 │   │   ├── client.py               # HTTP client
