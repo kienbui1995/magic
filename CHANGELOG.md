@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-04-09
+
+### Added
+- **PostgreSQL backend** — `MAGIC_POSTGRES_URL` auto-selects PostgreSQL; auto-runs golang-migrate migrations on startup
+- **SQLite persistent storage** — `MAGIC_STORE=path.db` for single-instance persistence (was always there, now documented)
+- **pgvector semantic search** — `POST /knowledge/{id}/embedding` stores embeddings; `POST /knowledge/search/semantic` for cosine similarity search
+- **SSE streaming** — `POST /api/v1/tasks/stream` submits and streams task output; `GET /api/v1/tasks/{id}/stream` for reconnection
+- **Webhooks (at-least-once)** — `POST /orgs/{orgID}/webhooks` registers endpoints; events delivered with HMAC-SHA256 signature, exponential backoff retry (30s→5m→30m→2h→8h)
+- **Prometheus metrics** — `GET /metrics` (unauthenticated) exports 14 metrics covering tasks, workers, cost, workflows, knowledge, webhooks, and SSE streams
+- **Go SDK** — `sdk/go/` with Worker struct, auto-discovery, `Worker.Run()`, `SubmitAndWait()`
+- **Worker token authentication** — per-org tokens for worker auth (`POST /orgs/{orgID}/tokens`)
+- **Audit log** — all API actions logged; queryable via `GET /orgs/{orgID}/audit`
+- **Rate limiting** — per-endpoint token bucket rate limits with Prometheus instrumentation
+
+### Changed
+- Go version updated to 1.25+
+- Python SDK package name: `magic-ai-sdk` (import as `from magic_ai_sdk import Worker`)
+
 ## [0.2.0] - 2026-03-17
 
 ### Added
