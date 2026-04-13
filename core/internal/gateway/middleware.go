@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/kienbui1995/magic/core/internal/protocol"
+	"github.com/kienbui1995/magic/core/internal/rbac"
 	"github.com/kienbui1995/magic/core/internal/store"
 )
 
@@ -181,4 +182,55 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// rbacMiddleware checks RBAC permissions based on the request method.
+// Maps HTTP methods to RBAC actions: GET→read, POST/PUT→write, DELETE→delete.
+// If no RBAC enforcer is configured (nil), all requests pass through.
+func rbacMiddleware(enforcer *rbac.Enforcer) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if enforcer == nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Determine org and subject from context
+			token := TokenFromContext(r.Context())
+			orgID := ""
+			subject := ""
+			if token != nil {
+				orgID = token.OrgID
+				subject = token.WorkerID
+			}
+			// Also check path for org-scoped endpoints
+			if pathOrg := r.PathValue("orgID"); pathOrg != "" && orgID == "" {
+				orgID = pathOrg
+			}
+
+			if orgID == "" {
+				next.ServeHTTP(w, r) // dev mode
+				return
+			}
+
+			action := methodToAction(r.Method)
+			if !enforcer.Check(orgID, subject, action) {
+				writeError(w, http.StatusForbidden, "insufficient permissions")
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func methodToAction(method string) string {
+	switch method {
+	case "GET", "HEAD":
+		return rbac.ActionRead
+	case "DELETE":
+		return rbac.ActionDelete
+	default:
+		return rbac.ActionWrite
+	}
 }

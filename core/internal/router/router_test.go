@@ -201,6 +201,64 @@ func TestRouteTask_NoOrgID_RoutesAll(t *testing.T) {
 	}
 }
 
+// roundRobinStrategy is a custom plugin that picks workers in round-robin order.
+type roundRobinStrategy struct{ idx int }
+
+func (s *roundRobinStrategy) Name() string { return "round_robin" }
+func (s *roundRobinStrategy) Select(candidates []*protocol.Worker, _ *protocol.Task) *protocol.Worker {
+	if len(candidates) == 0 {
+		return nil
+	}
+	w := candidates[s.idx%len(candidates)]
+	s.idx++
+	return w
+}
+
+func TestRouter_CustomStrategyPlugin(t *testing.T) {
+	s := store.NewMemoryStore()
+	bus := events.NewBus()
+	reg := registry.New(s, bus)
+	rt := router.New(reg, s, bus)
+
+	// Register custom plugin
+	rr := &roundRobinStrategy{}
+	rt.RegisterStrategy(rr)
+
+	reg.Register(protocol.RegisterPayload{
+		Name:         "BotA",
+		Capabilities: []protocol.Capability{{Name: "writing"}},
+		Endpoint:     protocol.Endpoint{Type: "http", URL: "http://localhost:9001"},
+		Limits:       protocol.WorkerLimits{MaxConcurrentTasks: 10},
+	})
+	reg.Register(protocol.RegisterPayload{
+		Name:         "BotB",
+		Capabilities: []protocol.Capability{{Name: "writing"}},
+		Endpoint:     protocol.Endpoint{Type: "http", URL: "http://localhost:9002"},
+		Limits:       protocol.WorkerLimits{MaxConcurrentTasks: 10},
+	})
+
+	names := make([]string, 2)
+	for i := range names {
+		task := &protocol.Task{
+			ID:   protocol.GenerateID("task"),
+			Type: "writing",
+			Routing: protocol.RoutingConfig{
+				Strategy:             "round_robin",
+				RequiredCapabilities: []string{"writing"},
+			},
+		}
+		w, err := rt.RouteTask(task)
+		if err != nil {
+			t.Fatalf("RouteTask[%d]: %v", i, err)
+		}
+		names[i] = w.Name
+	}
+
+	if names[0] == names[1] {
+		t.Errorf("round_robin should alternate workers, got %q and %q", names[0], names[1])
+	}
+}
+
 func TestRouteTask_OrgIsolation_MultipleWorkers(t *testing.T) {
 	rt, _, s := setupRouterWithStore(t)
 

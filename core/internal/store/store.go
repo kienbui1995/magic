@@ -89,4 +89,18 @@ type Store interface {
 	AddWebhookDelivery(d *protocol.WebhookDelivery) error
 	UpdateWebhookDelivery(d *protocol.WebhookDelivery) error
 	ListPendingWebhookDeliveries() []*protocol.WebhookDelivery
+
+	// Role bindings (RBAC)
+	AddRoleBinding(rb *protocol.RoleBinding) error
+	GetRoleBinding(id string) (*protocol.RoleBinding, error)
+	RemoveRoleBinding(id string) error
+	ListRoleBindingsByOrg(orgID string) []*protocol.RoleBinding
+	FindRoleBinding(orgID, subject string) (*protocol.RoleBinding, error)
+
+	// Policies
+	AddPolicy(p *protocol.Policy) error
+	GetPolicy(id string) (*protocol.Policy, error)
+	UpdatePolicy(p *protocol.Policy) error
+	RemovePolicy(id string) error
+	ListPoliciesByOrg(orgID string) []*protocol.Policy
 }

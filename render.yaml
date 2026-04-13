@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: magic
+    runtime: docker
+    healthCheckPath: /health
+    envVars:
+      - key: MAGIC_PORT
+        value: 8080
+      - key: MAGIC_API_KEY
+        generateValue: true

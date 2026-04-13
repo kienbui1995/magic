@@ -16,3 +16,11 @@ feedback.json
 spec-feedback.json
 plan-feedback.json
 .worktrees/
+
+# Build artifacts
+core/bin/
+core/magic
+*.png
+.playwright-mcp/
+sdk/typescript/dist/
+sdk/typescript/node_modules/

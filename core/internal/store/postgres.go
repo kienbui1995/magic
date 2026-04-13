@@ -489,3 +489,48 @@ func (s *PostgreSQLStore) ListPendingWebhookDeliveries() []*protocol.WebhookDeli
 
 // Interface compliance check — compile-time assertion.
 var _ Store = (*PostgreSQLStore)(nil)
+
+// --- Role Bindings (stub — TODO: implement with SQL) ---
+
+func (s *PostgreSQLStore) AddRoleBinding(rb *protocol.RoleBinding) error {
+	return pgPut(s.pool, "role_bindings", rb.ID, rb)
+}
+func (s *PostgreSQLStore) GetRoleBinding(id string) (*protocol.RoleBinding, error) {
+	return pgGet[protocol.RoleBinding](s.pool, "role_bindings", id)
+}
+func (s *PostgreSQLStore) RemoveRoleBinding(id string) error {
+	return pgDelete(s.pool, "role_bindings", id)
+}
+func (s *PostgreSQLStore) ListRoleBindingsByOrg(orgID string) []*protocol.RoleBinding {
+	items, _ := pgList[protocol.RoleBinding](s.pool,
+		`SELECT data FROM role_bindings WHERE data->>'org_id' = $1`, orgID)
+	return items
+}
+func (s *PostgreSQLStore) FindRoleBinding(orgID, subject string) (*protocol.RoleBinding, error) {
+	items, _ := pgList[protocol.RoleBinding](s.pool,
+		`SELECT data FROM role_bindings WHERE data->>'org_id' = $1 AND data->>'subject' = $2`, orgID, subject)
+	if len(items) == 0 {
+		return nil, ErrNotFound
+	}
+	return items[0], nil
+}
+
+// --- Policies (stub — TODO: implement with SQL) ---
+
+func (s *PostgreSQLStore) AddPolicy(p *protocol.Policy) error {
+	return pgPut(s.pool, "policies", p.ID, p)
+}
+func (s *PostgreSQLStore) GetPolicy(id string) (*protocol.Policy, error) {
+	return pgGet[protocol.Policy](s.pool, "policies", id)
+}
+func (s *PostgreSQLStore) UpdatePolicy(p *protocol.Policy) error {
+	return pgPut(s.pool, "policies", p.ID, p)
+}
+func (s *PostgreSQLStore) RemovePolicy(id string) error {
+	return pgDelete(s.pool, "policies", id)
+}
+func (s *PostgreSQLStore) ListPoliciesByOrg(orgID string) []*protocol.Policy {
+	items, _ := pgList[protocol.Policy](s.pool,
+		`SELECT data FROM policies WHERE data->>'org_id' = $1`, orgID)
+	return items
+}

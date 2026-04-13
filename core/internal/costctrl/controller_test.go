@@ -65,6 +65,38 @@ func TestCostController_AutoPause(t *testing.T) {
 	}
 }
 
+// --- Custom policy test ---
+
+// hardCapPolicy rejects any single cost above a threshold.
+type hardCapPolicy struct{ max float64 }
+
+func (p hardCapPolicy) Name() string { return "hard_cap" }
+func (p hardCapPolicy) Check(_ *protocol.Worker, cost float64) costctrl.Decision {
+	if cost > p.max {
+		return costctrl.Reject
+	}
+	return costctrl.Allow
+}
+
+func TestCostController_CustomPolicy(t *testing.T) {
+	s := store.NewMemoryStore()
+	bus := events.NewBus()
+	cc := costctrl.New(s, bus)
+	cc.RegisterPolicy(hardCapPolicy{max: 0.50})
+
+	w := &protocol.Worker{ID: "w1", Name: "Bot", Status: protocol.StatusActive,
+		Limits: protocol.WorkerLimits{MaxCostPerDay: 100}} // high budget, won't trigger built-in
+	s.AddWorker(w)
+
+	cc.RecordCost("w1", "t1", 0.75) // exceeds hard cap
+	time.Sleep(50 * time.Millisecond)
+
+	got, _ := s.GetWorker("w1")
+	if got.Status != protocol.StatusPaused {
+		t.Errorf("custom policy should pause worker, got status=%q", got.Status)
+	}
+}
+
 func TestCostController_OrgReport(t *testing.T) {
 	s := store.NewMemoryStore()
 	bus := events.NewBus()

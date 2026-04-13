@@ -27,6 +27,8 @@ type MemoryStore struct {
 	hasTokens         bool
 	webhooks          map[string]*protocol.Webhook
 	webhookDeliveries map[string]*protocol.WebhookDelivery
+	roleBindings      map[string]*protocol.RoleBinding
+	policies          map[string]*protocol.Policy
 }
 
 // NewMemoryStore creates a new in-memory store.
@@ -41,6 +43,8 @@ func NewMemoryStore() *MemoryStore {
 		tokenIndex:        make(map[string]string),
 		webhooks:          make(map[string]*protocol.Webhook),
 		webhookDeliveries: make(map[string]*protocol.WebhookDelivery),
+		roleBindings:      make(map[string]*protocol.RoleBinding),
+		policies:          make(map[string]*protocol.Policy),
 	}
 }
 
@@ -621,6 +625,109 @@ func (s *MemoryStore) ListPendingWebhookDeliveries() []*protocol.WebhookDelivery
 				cp := *d
 				result = append(result, &cp)
 			}
+		}
+	}
+	return result
+}
+
+// --- Role Bindings ---
+
+func (s *MemoryStore) AddRoleBinding(rb *protocol.RoleBinding) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.roleBindings[rb.ID] = protocol.DeepCopyRoleBinding(rb)
+	return nil
+}
+
+func (s *MemoryStore) GetRoleBinding(id string) (*protocol.RoleBinding, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	rb, ok := s.roleBindings[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return protocol.DeepCopyRoleBinding(rb), nil
+}
+
+func (s *MemoryStore) RemoveRoleBinding(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.roleBindings[id]; !ok {
+		return ErrNotFound
+	}
+	delete(s.roleBindings, id)
+	return nil
+}
+
+func (s *MemoryStore) ListRoleBindingsByOrg(orgID string) []*protocol.RoleBinding {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var result []*protocol.RoleBinding
+	for _, rb := range s.roleBindings {
+		if rb.OrgID == orgID {
+			result = append(result, protocol.DeepCopyRoleBinding(rb))
+		}
+	}
+	return result
+}
+
+func (s *MemoryStore) FindRoleBinding(orgID, subject string) (*protocol.RoleBinding, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, rb := range s.roleBindings {
+		if rb.OrgID == orgID && rb.Subject == subject {
+			return protocol.DeepCopyRoleBinding(rb), nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+// --- Policies ---
+
+func (s *MemoryStore) AddPolicy(p *protocol.Policy) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.policies[p.ID] = protocol.DeepCopyPolicy(p)
+	return nil
+}
+
+func (s *MemoryStore) GetPolicy(id string) (*protocol.Policy, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	p, ok := s.policies[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return protocol.DeepCopyPolicy(p), nil
+}
+
+func (s *MemoryStore) UpdatePolicy(p *protocol.Policy) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.policies[p.ID]; !ok {
+		return ErrNotFound
+	}
+	s.policies[p.ID] = protocol.DeepCopyPolicy(p)
+	return nil
+}
+
+func (s *MemoryStore) RemovePolicy(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.policies[id]; !ok {
+		return ErrNotFound
+	}
+	delete(s.policies, id)
+	return nil
+}
+
+func (s *MemoryStore) ListPoliciesByOrg(orgID string) []*protocol.Policy {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var result []*protocol.Policy
+	for _, p := range s.policies {
+		if p.OrgID == orgID {
+			result = append(result, protocol.DeepCopyPolicy(p))
 		}
 	}
 	return result

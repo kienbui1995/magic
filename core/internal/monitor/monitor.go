@@ -2,7 +2,6 @@ package monitor
 
 import (
 	"io"
-	"sync"
 	"sync/atomic"
 
 	"github.com/kienbui1995/magic/core/internal/events"
@@ -17,17 +16,23 @@ type Stats struct {
 	WorkersCount int64 `json:"workers_count"`
 }
 
-// Monitor tracks system events and outputs structured logs.
+// Monitor tracks system events and fans out to registered LogSinks.
 type Monitor struct {
-	bus      *events.Bus
-	writer   io.Writer
-	writerMu sync.Mutex
-	stats    Stats
+	bus   *events.Bus
+	sinks []LogSink
+	stats Stats
 }
 
-// New creates a new Monitor that writes logs to the given writer.
+// New creates a new Monitor with a built-in JSONSink writing to w.
 func New(bus *events.Bus, writer io.Writer) *Monitor {
-	return &Monitor{bus: bus, writer: writer}
+	m := &Monitor{bus: bus}
+	m.RegisterSink(NewJSONSink(writer))
+	return m
+}
+
+// RegisterSink adds a custom logging sink plugin.
+func (m *Monitor) RegisterSink(s LogSink) {
+	m.sinks = append(m.sinks, s)
 }
 
 // Start subscribes to all events and begins logging.
@@ -82,7 +87,10 @@ func (m *Monitor) Start() {
 			}
 		}
 
-		writeLogEntry(m.writer, &m.writerMu, e)
+		entry := toLogEntry(e)
+		for _, s := range m.sinks {
+			s.Write(entry)
+		}
 	})
 }
 

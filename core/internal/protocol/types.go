@@ -82,6 +82,8 @@ type Worker struct {
 	RegisteredAt   time.Time         `json:"registered_at"`
 	LastHeartbeat  time.Time         `json:"last_heartbeat"`
 	Metadata       map[string]any    `json:"metadata,omitempty"`
+	Tags           map[string]string `json:"tags,omitempty"`
+	SessionMode    string            `json:"session_mode,omitempty"` // "stateless" (default) or "sessionful"
 }
 
 // WorkerToken represents an authentication credential issued to a worker.
@@ -160,6 +162,7 @@ type TaskError struct {
 
 type Task struct {
 	ID             string          `json:"id"`
+	TraceID        string          `json:"trace_id,omitempty"`
 	Type           string          `json:"type"`
 	Priority       string          `json:"priority"`
 	Status         string          `json:"status"`
@@ -221,6 +224,7 @@ type WorkflowStep struct {
 
 type Workflow struct {
 	ID        string         `json:"id"`
+	TraceID   string         `json:"trace_id,omitempty"`
 	Name      string         `json:"name"`
 	Steps     []WorkflowStep `json:"steps"`
 	Status    string         `json:"status"`
@@ -240,6 +244,12 @@ func DeepCopyWorker(w *Worker) *Worker {
 		cp.Metadata = make(map[string]any, len(w.Metadata))
 		for k, v := range w.Metadata {
 			cp.Metadata[k] = v
+		}
+	}
+	if w.Tags != nil {
+		cp.Tags = make(map[string]string, len(w.Tags))
+		for k, v := range w.Tags {
+			cp.Tags[k] = v
 		}
 	}
 	return &cp
@@ -401,6 +411,65 @@ func DeepCopyWebhook(w *Webhook) *Webhook {
 	if w.Events != nil {
 		cp.Events = make([]string, len(w.Events))
 		copy(cp.Events, w.Events)
+	}
+	return &cp
+}
+
+// --- RBAC ---
+
+// Role constants for access control.
+const (
+	RoleOwner  = "owner"  // full access: manage org, policies, tokens, workers
+	RoleAdmin  = "admin"  // read/write: submit tasks, manage workers, view costs
+	RoleViewer = "viewer" // read-only: list workers, tasks, costs
+)
+
+// RoleBinding maps a subject to a role within an org.
+type RoleBinding struct {
+	ID        string    `json:"id"`
+	OrgID     string    `json:"org_id"`
+	Subject   string    `json:"subject"`   // API key hash, user ID, or token ID
+	Role      string    `json:"role"`      // owner | admin | viewer
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// DeepCopyRoleBinding returns a deep copy of a RoleBinding.
+func DeepCopyRoleBinding(rb *RoleBinding) *RoleBinding {
+	cp := *rb
+	return &cp
+}
+
+// --- Policy Engine ---
+
+// PolicyEffect determines how a rule violation is handled.
+const (
+	PolicyHard = "hard" // reject request immediately
+	PolicySoft = "soft" // allow but audit + warn
+)
+
+// PolicyRule defines a single constraint within a policy.
+type PolicyRule struct {
+	Name   string  `json:"name"`             // e.g. "allowed_capabilities", "max_cost_per_task"
+	Effect string  `json:"effect"`           // hard | soft
+	Value  any     `json:"value"`            // []string for whitelist, float64 for limits
+}
+
+// Policy defines a set of rules scoped to an org.
+type Policy struct {
+	ID        string       `json:"id"`
+	OrgID     string       `json:"org_id"`
+	Name      string       `json:"name"`
+	Rules     []PolicyRule `json:"rules"`
+	Enabled   bool         `json:"enabled"`
+	CreatedAt time.Time    `json:"created_at"`
+}
+
+// DeepCopyPolicy returns a deep copy of a Policy.
+func DeepCopyPolicy(p *Policy) *Policy {
+	cp := *p
+	if p.Rules != nil {
+		cp.Rules = make([]PolicyRule, len(p.Rules))
+		copy(cp.Rules, p.Rules)
 	}
 	return &cp
 }

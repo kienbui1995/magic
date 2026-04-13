@@ -14,6 +14,13 @@ All configuration via environment variables.
 | `MAGIC_CORS_ORIGIN` | _(none)_ | Allowed CORS origin. Example: `https://yourdomain.com` |
 | `MAGIC_RATE_LIMIT_DISABLE` | `false` | Disable rate limiting (dev/testing only) |
 
+## RBAC & Policies
+
+No environment variables needed. Both features auto-enable when you create the first role binding or policy via the API:
+
+- **RBAC** — no role bindings = allow all (dev mode). Creating a role binding activates enforcement.
+- **Policies** — no policies = no guardrails. Creating a policy starts evaluating tasks against its rules.
+
 ## Storage selection
 
 ```

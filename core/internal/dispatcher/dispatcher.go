@@ -175,6 +175,9 @@ func (d *Dispatcher) tryDispatch(ctx context.Context, body []byte, task *protoco
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if task.TraceID != "" {
+		req.Header.Set("X-Trace-ID", task.TraceID)
+	}
 
 	resp, err := d.client.Do(req)
 	if err != nil {
@@ -361,6 +364,9 @@ func (d *Dispatcher) DispatchStream(ctx context.Context, task *protocol.Task, wo
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
+	if task.TraceID != "" {
+		req.Header.Set("X-Trace-ID", task.TraceID)
+	}
 
 	resp, err := d.streamClient.Do(req)
 	if err != nil {

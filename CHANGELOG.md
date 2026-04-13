@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-04-13
+
+### Added
+- **Plugin system** — extensible interfaces for Router (`Strategy`), Evaluator (`EvalPlugin`), Cost Controller (`CostPolicy`), and Monitor (`LogSink`). Built-in implementations registered by default; custom plugins via `Register*()` methods
+- **RBAC** — role-based access control with 3 roles: `owner` (full), `admin` (read/write/delete), `viewer` (read-only). Dev mode (no bindings) allows all. API: `POST/GET/DELETE /api/v1/orgs/{orgID}/roles`
+- **Policy Engine** — hard/soft guardrails enforced before task routing. 4 built-in rules: `allowed_capabilities`, `blocked_capabilities`, `max_cost_per_task`, `max_timeout_ms`. Hard violations return 403; soft violations audit + warn. API: full CRUD at `/api/v1/orgs/{orgID}/policies`
+- **Worker manifest** — `tags` (map[string]string) and `session_mode` (stateless/sessionful) fields on Worker
+- **TraceID** — auto-generated `trace_id` on every task and workflow, propagated to workers via `X-Trace-ID` header
+- **Per-org rate limiting** — task submission rate limited per org via `X-Org-ID` header (in addition to existing per-IP limits)
+- **TypeScript SDK** — `sdk/typescript/` with `Worker` and `MagiCClient` classes, zero runtime dependencies
+- **VitePress docs** — Governance section with RBAC and Policy guides, updated API reference
+
+### Changed
+- Router refactored from switch/case to strategy registry pattern
+- Evaluator refactored from monolithic to plugin chain
+- Cost Controller refactored from hardcoded thresholds to policy chain
+- Monitor refactored from single writer to multi-sink fan-out
+- Policy enforcement added to both `handleSubmitTask` and `handleStreamTask`
+- Go version in release workflow updated to 1.25
+
 ## [0.6.0] - 2026-04-09
 
 ### Added

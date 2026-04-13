@@ -55,6 +55,47 @@ func TestMonitor_CapturesEvents(t *testing.T) {
 	}
 }
 
+// --- Custom sink test ---
+
+// memorySink collects log entries in a slice.
+type memorySink struct {
+	mu      sync.Mutex
+	entries []monitor.LogEntry
+}
+
+func (s *memorySink) Name() string { return "memory" }
+func (s *memorySink) Write(entry monitor.LogEntry) {
+	s.mu.Lock()
+	s.entries = append(s.entries, entry)
+	s.mu.Unlock()
+}
+func (s *memorySink) Len() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.entries)
+}
+
+func TestMonitor_CustomSink(t *testing.T) {
+	bus := events.NewBus()
+	buf := &safeBuffer{}
+	mon := monitor.New(bus, buf)
+
+	sink := &memorySink{}
+	mon.RegisterSink(sink)
+	mon.Start()
+
+	bus.Publish(events.Event{Type: "test.event", Source: "test"})
+	time.Sleep(50 * time.Millisecond)
+
+	// Both built-in JSONSink and custom memorySink should receive the event
+	if buf.String() == "" {
+		t.Error("JSONSink should have written output")
+	}
+	if sink.Len() == 0 {
+		t.Error("custom sink should have received the event")
+	}
+}
+
 func TestMonitor_WritesJSON(t *testing.T) {
 	bus := events.NewBus()
 	buf := &safeBuffer{}

@@ -35,6 +35,8 @@ func NewSQLiteStore(path string) (*SQLiteStore, error) {
 		`CREATE TABLE IF NOT EXISTS audit_log (id TEXT PRIMARY KEY, data TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS webhooks (id TEXT PRIMARY KEY, data TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS webhook_deliveries (id TEXT PRIMARY KEY, data TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS role_bindings (id TEXT PRIMARY KEY, data TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS policies (id TEXT PRIMARY KEY, data TEXT NOT NULL)`,
 	}
 	for _, ddl := range tables {
 		if _, err := db.Exec(ddl); err != nil {
@@ -464,6 +466,56 @@ func (s *SQLiteStore) ListPendingWebhookDeliveries() []*protocol.WebhookDelivery
 			if d.NextRetry == nil || d.NextRetry.Before(now) {
 				result = append(result, d)
 			}
+		}
+	}
+	return result
+}
+
+// --- Role Bindings ---
+
+func (s *SQLiteStore) AddRoleBinding(rb *protocol.RoleBinding) error {
+	return putJSON(s.db, "role_bindings", rb.ID, rb)
+}
+func (s *SQLiteStore) GetRoleBinding(id string) (*protocol.RoleBinding, error) {
+	return getJSON[protocol.RoleBinding](s.db, "role_bindings", id)
+}
+func (s *SQLiteStore) RemoveRoleBinding(id string) error { return deleteRow(s.db, "role_bindings", id) }
+func (s *SQLiteStore) ListRoleBindingsByOrg(orgID string) []*protocol.RoleBinding {
+	all, _ := listJSON[protocol.RoleBinding](s.db, "role_bindings")
+	var result []*protocol.RoleBinding
+	for _, rb := range all {
+		if rb.OrgID == orgID {
+			result = append(result, rb)
+		}
+	}
+	return result
+}
+func (s *SQLiteStore) FindRoleBinding(orgID, subject string) (*protocol.RoleBinding, error) {
+	all, _ := listJSON[protocol.RoleBinding](s.db, "role_bindings")
+	for _, rb := range all {
+		if rb.OrgID == orgID && rb.Subject == subject {
+			return rb, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+// --- Policies ---
+
+func (s *SQLiteStore) AddPolicy(p *protocol.Policy) error { return putJSON(s.db, "policies", p.ID, p) }
+func (s *SQLiteStore) GetPolicy(id string) (*protocol.Policy, error) {
+	return getJSON[protocol.Policy](s.db, "policies", id)
+}
+func (s *SQLiteStore) UpdatePolicy(p *protocol.Policy) error {
+	return putJSON(s.db, "policies", p.ID, p)
+}
+func (s *SQLiteStore) RemovePolicy(id string) error { return deleteRow(s.db, "policies", id) }
+func (s *SQLiteStore) ListPoliciesByOrg(orgID string) []*protocol.Policy {
+	all, _ := listJSON[protocol.Policy](s.db, "policies")
+	var result []*protocol.Policy
+	for _, p := range all {
+		if p.OrgID == orgID {
+			result = append(result, p)
 		}
 	}
 	return result

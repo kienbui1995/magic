@@ -133,6 +133,77 @@ Requires worker token auth (`Authorization: Bearer <worker-token>`).
 ### Delete
 `DELETE /api/v1/orgs/{orgID}/webhooks/{webhookID}`
 
+## RBAC
+
+### Create role binding
+`POST /api/v1/orgs/{orgID}/roles`
+
+**Body:**
+```json
+{"subject": "user-alice", "role": "admin"}
+```
+
+**Response:**
+```json
+{
+  "id": "rb-abc123",
+  "org_id": "org-123",
+  "subject": "user-alice",
+  "role": "admin",
+  "created_at": "2026-04-13T10:00:00Z"
+}
+```
+
+### List role bindings
+`GET /api/v1/orgs/{orgID}/roles`
+
+### Delete role binding
+`DELETE /api/v1/orgs/{orgID}/roles/{roleID}`
+
+## Policies
+
+### Create policy
+`POST /api/v1/orgs/{orgID}/policies`
+
+**Body:**
+```json
+{
+  "name": "production-guardrails",
+  "enabled": true,
+  "rules": [
+    {"type": "blocked_capabilities", "value": ["code_execution"], "effect": "hard"},
+    {"type": "max_cost_per_task", "value": 0.50, "effect": "hard"}
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "id": "pol-abc123",
+  "org_id": "org-123",
+  "name": "production-guardrails",
+  "enabled": true,
+  "rules": [
+    {"type": "blocked_capabilities", "value": ["code_execution"], "effect": "hard"},
+    {"type": "max_cost_per_task", "value": 0.50, "effect": "hard"}
+  ],
+  "created_at": "2026-04-13T10:00:00Z"
+}
+```
+
+### List policies
+`GET /api/v1/orgs/{orgID}/policies`
+
+### Get policy
+`GET /api/v1/orgs/{orgID}/policies/{policyID}`
+
+### Update policy
+`PUT /api/v1/orgs/{orgID}/policies/{policyID}`
+
+### Delete policy
+`DELETE /api/v1/orgs/{orgID}/policies/{policyID}`
+
 ## System
 
 | Endpoint | Description |

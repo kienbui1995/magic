@@ -2,7 +2,6 @@ package router
 
 import (
 	"errors"
-	"sort"
 
 	"github.com/kienbui1995/magic/core/internal/events"
 	"github.com/kienbui1995/magic/core/internal/protocol"
@@ -15,14 +14,32 @@ var ErrNoWorkerAvailable = errors.New("no worker available for task")
 
 // Router selects the best worker for a task based on routing strategy.
 type Router struct {
-	registry *registry.Registry
-	store    store.Store
-	bus      *events.Bus
+	registry   *registry.Registry
+	store      store.Store
+	bus        *events.Bus
+	strategies map[string]Strategy
 }
 
-// New creates a new task router.
+// New creates a new task router with built-in strategies.
+// Use RegisterStrategy to add custom routing plugins.
 func New(reg *registry.Registry, s store.Store, bus *events.Bus) *Router {
-	return &Router{registry: reg, store: s, bus: bus}
+	r := &Router{
+		registry:   reg,
+		store:      s,
+		bus:        bus,
+		strategies: make(map[string]Strategy),
+	}
+	// Register built-in strategies
+	r.RegisterStrategy(BestMatchStrategy{})
+	r.RegisterStrategy(CheapestStrategy{})
+	r.RegisterStrategy(SpecificStrategy{})
+	return r
+}
+
+// RegisterStrategy adds a custom routing strategy plugin.
+// If a strategy with the same name exists, it is replaced.
+func (r *Router) RegisterStrategy(s Strategy) {
+	r.strategies[s.Name()] = s
 }
 
 // RouteTask selects a worker for the task using the configured routing strategy.
@@ -33,21 +50,18 @@ func (r *Router) RouteTask(task *protocol.Task) (*protocol.Worker, error) {
 
 	var allWorkers []*protocol.Worker
 	if orgID != "" {
-		// Security mode: only workers in the same org
 		allWorkers = r.store.ListWorkersByOrg(orgID)
 	} else {
-		// Dev mode: use all workers (existing behavior)
 		allWorkers = r.registry.ListWorkers()
 	}
 
 	capable := filterByCapability(allWorkers, task.Routing.RequiredCapabilities)
-
 	if len(capable) == 0 {
 		return nil, ErrNoWorkerAvailable
 	}
 
 	if len(task.Routing.ExcludedWorkers) > 0 {
-		excluded := make(map[string]bool)
+		excluded := make(map[string]bool, len(task.Routing.ExcludedWorkers))
 		for _, id := range task.Routing.ExcludedWorkers {
 			excluded[id] = true
 		}
@@ -63,38 +77,13 @@ func (r *Router) RouteTask(task *protocol.Task) (*protocol.Worker, error) {
 		}
 	}
 
-	var selected *protocol.Worker
-
-	switch task.Routing.Strategy {
-	case "cheapest":
-		capName := ""
-		if len(task.Routing.RequiredCapabilities) > 0 {
-			capName = task.Routing.RequiredCapabilities[0]
-		}
-		selected = findCheapest(capable, capName)
-
-	case "specific":
-		if len(task.Routing.PreferredWorkers) > 0 {
-			targetID := task.Routing.PreferredWorkers[0]
-			for _, w := range capable {
-				if w.ID == targetID {
-					selected = w
-					break
-				}
-			}
-		}
-
-	default:
-		scores := make([]WorkerScore, len(capable))
-		for i, w := range capable {
-			scores[i] = WorkerScore{Worker: w, Score: scoreBestMatch(w, task.Priority)}
-		}
-		sort.Slice(scores, func(i, j int) bool {
-			return scores[i].Score > scores[j].Score
-		})
-		selected = scores[0].Worker
+	// Lookup strategy; fall back to best_match for unknown names
+	strategy, ok := r.strategies[task.Routing.Strategy]
+	if !ok {
+		strategy = r.strategies["best_match"]
 	}
 
+	selected := strategy.Select(capable, task)
 	if selected == nil {
 		return nil, ErrNoWorkerAvailable
 	}
@@ -102,7 +91,6 @@ func (r *Router) RouteTask(task *protocol.Task) (*protocol.Worker, error) {
 	task.AssignedWorker = selected.ID
 	task.Status = protocol.TaskAssigned
 
-	// Increment worker load via store to avoid race condition
 	selected.CurrentLoad++
 	r.store.UpdateWorker(selected) //nolint:errcheck
 

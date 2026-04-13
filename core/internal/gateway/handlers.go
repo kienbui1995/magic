@@ -147,8 +147,28 @@ func (g *Gateway) handleSubmitTask(w http.ResponseWriter, r *http.Request) {
 	task.Status = protocol.TaskPending
 	task.CreatedAt = time.Now()
 
+	if task.TraceID == "" {
+		task.TraceID = protocol.GenerateID("trace")
+	}
+
 	if task.Priority == "" {
 		task.Priority = protocol.PriorityNormal
+	}
+
+	// Policy enforcement: check org policies before routing
+	if g.deps.Policy != nil {
+		result := g.deps.Policy.Enforce(&task)
+		if !result.Allowed {
+			msgs := make([]string, len(result.Violations))
+			for i, v := range result.Violations {
+				msgs[i] = v.Message
+			}
+			writeJSON(w, http.StatusForbidden, map[string]any{
+				"error":      "policy violation",
+				"violations": result.Violations,
+			})
+			return
+		}
 	}
 
 	worker, err := g.deps.Router.RouteTask(&task)
@@ -204,6 +224,10 @@ func (g *Gateway) handleSubmitWorkflow(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid workflow")
 		return
+	}
+
+	if wf.TraceID == "" {
+		wf.TraceID = protocol.GenerateID("trace")
 	}
 
 	writeJSON(w, http.StatusCreated, wf)
@@ -569,6 +593,26 @@ func (g *Gateway) handleStreamTask(w http.ResponseWriter, r *http.Request) {
 		Input:    req.Input,
 		Context:  req.Context,
 		Priority: protocol.PriorityNormal,
+		Routing: protocol.RoutingConfig{
+			Strategy:             "best_match",
+			RequiredCapabilities: []string{req.Type},
+		},
+	}
+
+	if task.TraceID == "" {
+		task.TraceID = protocol.GenerateID("trace")
+	}
+
+	// Policy enforcement
+	if g.deps.Policy != nil {
+		result := g.deps.Policy.Enforce(task)
+		if !result.Allowed {
+			writeJSON(w, http.StatusForbidden, map[string]any{
+				"error":      "policy violation",
+				"violations": result.Violations,
+			})
+			return
+		}
 	}
 
 	// Route to a worker (populates task.AssignedWorker and sets status to TaskAssigned)
@@ -709,4 +753,167 @@ func (g *Gateway) handleResubscribeStream(w http.ResponseWriter, r *http.Request
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// --- RBAC: Role Bindings ---
+
+// POST /api/v1/orgs/{orgID}/roles
+func (g *Gateway) handleCreateRoleBinding(w http.ResponseWriter, r *http.Request) {
+	orgID := r.PathValue("orgID")
+	var req struct {
+		Subject string `json:"subject"`
+		Role    string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Subject == "" || req.Role == "" {
+		writeError(w, http.StatusBadRequest, "subject and role are required")
+		return
+	}
+	if req.Role != protocol.RoleOwner && req.Role != protocol.RoleAdmin && req.Role != protocol.RoleViewer {
+		writeError(w, http.StatusBadRequest, "role must be owner, admin, or viewer")
+		return
+	}
+	// Check if binding already exists
+	if existing, err := g.deps.Store.FindRoleBinding(orgID, req.Subject); err == nil {
+		writeJSON(w, http.StatusConflict, existing)
+		return
+	}
+	rb := &protocol.RoleBinding{
+		ID:        protocol.GenerateID("rb"),
+		OrgID:     orgID,
+		Subject:   req.Subject,
+		Role:      req.Role,
+		CreatedAt: time.Now(),
+	}
+	if err := g.deps.Store.AddRoleBinding(rb); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create role binding")
+		return
+	}
+	writeJSON(w, http.StatusCreated, rb)
+}
+
+// GET /api/v1/orgs/{orgID}/roles
+func (g *Gateway) handleListRoleBindings(w http.ResponseWriter, r *http.Request) {
+	orgID := r.PathValue("orgID")
+	writeJSON(w, http.StatusOK, g.deps.Store.ListRoleBindingsByOrg(orgID))
+}
+
+// DELETE /api/v1/orgs/{orgID}/roles/{roleID}
+func (g *Gateway) handleDeleteRoleBinding(w http.ResponseWriter, r *http.Request) {
+	orgID := r.PathValue("orgID")
+	roleID := r.PathValue("roleID")
+	rb, err := g.deps.Store.GetRoleBinding(roleID)
+	if err != nil || rb.OrgID != orgID {
+		writeError(w, http.StatusNotFound, "role binding not found")
+		return
+	}
+	if err := g.deps.Store.RemoveRoleBinding(roleID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete role binding")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// --- Policy CRUD ---
+
+// POST /api/v1/orgs/{orgID}/policies
+func (g *Gateway) handleCreatePolicy(w http.ResponseWriter, r *http.Request) {
+	orgID := r.PathValue("orgID")
+	var req struct {
+		Name    string               `json:"name"`
+		Rules   []protocol.PolicyRule `json:"rules"`
+		Enabled bool                 `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" || len(req.Rules) == 0 {
+		writeError(w, http.StatusBadRequest, "name and rules are required")
+		return
+	}
+	p := &protocol.Policy{
+		ID:        protocol.GenerateID("pol"),
+		OrgID:     orgID,
+		Name:      req.Name,
+		Rules:     req.Rules,
+		Enabled:   req.Enabled,
+		CreatedAt: time.Now(),
+	}
+	if err := g.deps.Store.AddPolicy(p); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create policy")
+		return
+	}
+	writeJSON(w, http.StatusCreated, p)
+}
+
+// GET /api/v1/orgs/{orgID}/policies
+func (g *Gateway) handleListPolicies(w http.ResponseWriter, r *http.Request) {
+	orgID := r.PathValue("orgID")
+	writeJSON(w, http.StatusOK, g.deps.Store.ListPoliciesByOrg(orgID))
+}
+
+// GET /api/v1/orgs/{orgID}/policies/{policyID}
+func (g *Gateway) handleGetPolicy(w http.ResponseWriter, r *http.Request) {
+	orgID := r.PathValue("orgID")
+	policyID := r.PathValue("policyID")
+	p, err := g.deps.Store.GetPolicy(policyID)
+	if err != nil || p.OrgID != orgID {
+		writeError(w, http.StatusNotFound, "policy not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+// PUT /api/v1/orgs/{orgID}/policies/{policyID}
+func (g *Gateway) handleUpdatePolicy(w http.ResponseWriter, r *http.Request) {
+	orgID := r.PathValue("orgID")
+	policyID := r.PathValue("policyID")
+	existing, err := g.deps.Store.GetPolicy(policyID)
+	if err != nil || existing.OrgID != orgID {
+		writeError(w, http.StatusNotFound, "policy not found")
+		return
+	}
+	var req struct {
+		Name    *string               `json:"name"`
+		Rules   []protocol.PolicyRule  `json:"rules"`
+		Enabled *bool                 `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name != nil {
+		existing.Name = *req.Name
+	}
+	if req.Rules != nil {
+		existing.Rules = req.Rules
+	}
+	if req.Enabled != nil {
+		existing.Enabled = *req.Enabled
+	}
+	if err := g.deps.Store.UpdatePolicy(existing); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update policy")
+		return
+	}
+	writeJSON(w, http.StatusOK, existing)
+}
+
+// DELETE /api/v1/orgs/{orgID}/policies/{policyID}
+func (g *Gateway) handleDeletePolicy(w http.ResponseWriter, r *http.Request) {
+	orgID := r.PathValue("orgID")
+	policyID := r.PathValue("policyID")
+	p, err := g.deps.Store.GetPolicy(policyID)
+	if err != nil || p.OrgID != orgID {
+		writeError(w, http.StatusNotFound, "policy not found")
+		return
+	}
+	if err := g.deps.Store.RemovePolicy(policyID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete policy")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

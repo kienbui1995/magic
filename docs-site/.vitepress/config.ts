@@ -49,6 +49,13 @@ export default defineConfig({
         ],
       },
       {
+        text: 'Governance',
+        items: [
+          { text: 'RBAC', link: '/guide/rbac' },
+          { text: 'Policies', link: '/guide/policies' },
+        ],
+      },
+      {
         text: 'Reference',
         items: [
           { text: 'API Reference', link: '/api/reference' },

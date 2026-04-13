@@ -15,6 +15,8 @@ import (
 	"github.com/kienbui1995/magic/core/internal/monitor"
 	"github.com/kienbui1995/magic/core/internal/orchestrator"
 	"github.com/kienbui1995/magic/core/internal/orgmgr"
+	"github.com/kienbui1995/magic/core/internal/policy"
+	"github.com/kienbui1995/magic/core/internal/rbac"
 	"github.com/kienbui1995/magic/core/internal/registry"
 	"github.com/kienbui1995/magic/core/internal/router"
 	"github.com/kienbui1995/magic/core/internal/store"
@@ -35,6 +37,8 @@ type Deps struct {
 	Knowledge    *knowledge.Hub
 	Dispatcher   *dispatcher.Dispatcher
 	Webhook      *webhook.Manager
+	RBAC         *rbac.Enforcer     // nil = no RBAC
+	Policy       *policy.Engine     // nil = no policy enforcement
 }
 
 // Gateway is the HTTP entry point for the MagiC server.
@@ -59,6 +63,8 @@ func (g *Gateway) Handler() http.Handler {
 	tokenLimiter := newLimiterStore(rate.Every(3*time.Second), 10)
 	// Task submit: 200 req/IP/min → ~1 token per 300ms, burst 20
 	taskLimiter := newLimiterStore(rate.Every(300*time.Millisecond), 20)
+	// Task submit per org: 200 req/org/min via X-Org-ID header
+	orgTaskLimiter := newLimiterStore(rate.Every(300*time.Millisecond), 20)
 
 	registerRL := rateLimitMiddleware(registerLimiter, clientIP)
 	heartbeatRL := rateLimitMiddleware(heartbeatLimiter, clientIP)
@@ -66,6 +72,12 @@ func (g *Gateway) Handler() http.Handler {
 		return r.PathValue("orgID")
 	})
 	taskRL := rateLimitMiddleware(taskLimiter, clientIP)
+	orgTaskRL := rateLimitMiddleware(orgTaskLimiter, func(r *http.Request) string {
+		if orgID := r.Header.Get("X-Org-ID"); orgID != "" {
+			return orgID
+		}
+		return clientIP(r)
+	})
 
 	// Prometheus metrics — no auth (Prometheus scrapers don't send Bearer tokens)
 	mux.Handle("GET /metrics", promhttp.Handler())
@@ -87,10 +99,10 @@ func (g *Gateway) Handler() http.Handler {
 	mux.Handle("DELETE /api/v1/workers/{id}", workerAuth(http.HandlerFunc(g.handleDeregisterWorker)))
 
 	// Tasks
-	mux.Handle("POST /api/v1/tasks", taskRL(http.HandlerFunc(g.handleSubmitTask)))
+	mux.Handle("POST /api/v1/tasks", orgTaskRL(taskRL(http.HandlerFunc(g.handleSubmitTask))))
 	mux.HandleFunc("GET /api/v1/tasks", g.handleListTasks)
 	// Streaming tasks (must be before /tasks/{id} to avoid ambiguity)
-	mux.Handle("POST /api/v1/tasks/stream", taskRL(http.HandlerFunc(g.handleStreamTask)))
+	mux.Handle("POST /api/v1/tasks/stream", orgTaskRL(taskRL(http.HandlerFunc(g.handleStreamTask))))
 	mux.HandleFunc("GET /api/v1/tasks/{id}/stream", g.handleResubscribeStream)
 	mux.HandleFunc("GET /api/v1/tasks/{id}", g.handleGetTask)
 
@@ -133,7 +145,20 @@ func (g *Gateway) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/orgs/{orgID}/webhooks/{webhookID}", g.handleDeleteWebhook)
 	mux.HandleFunc("GET /api/v1/orgs/{orgID}/webhooks/{webhookID}/deliveries", g.handleListWebhookDeliveries)
 
+	// RBAC: Role bindings
+	mux.HandleFunc("POST /api/v1/orgs/{orgID}/roles", g.handleCreateRoleBinding)
+	mux.HandleFunc("GET /api/v1/orgs/{orgID}/roles", g.handleListRoleBindings)
+	mux.HandleFunc("DELETE /api/v1/orgs/{orgID}/roles/{roleID}", g.handleDeleteRoleBinding)
+
+	// Policies
+	mux.HandleFunc("POST /api/v1/orgs/{orgID}/policies", g.handleCreatePolicy)
+	mux.HandleFunc("GET /api/v1/orgs/{orgID}/policies", g.handleListPolicies)
+	mux.HandleFunc("GET /api/v1/orgs/{orgID}/policies/{policyID}", g.handleGetPolicy)
+	mux.HandleFunc("PUT /api/v1/orgs/{orgID}/policies/{policyID}", g.handleUpdatePolicy)
+	mux.HandleFunc("DELETE /api/v1/orgs/{orgID}/policies/{policyID}", g.handleDeletePolicy)
+
 	var handler http.Handler = mux
+	handler = rbacMiddleware(g.deps.RBAC)(handler)
 	handler = requestIDMiddleware(handler)
 	handler = bodySizeMiddleware(handler)
 	handler = authMiddleware(handler)

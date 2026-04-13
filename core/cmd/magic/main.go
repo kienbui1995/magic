@@ -25,6 +25,8 @@ import (
 	"github.com/kienbui1995/magic/core/internal/registry"
 	"github.com/kienbui1995/magic/core/internal/router"
 	"github.com/kienbui1995/magic/core/internal/store"
+	"github.com/kienbui1995/magic/core/internal/policy"
+	"github.com/kienbui1995/magic/core/internal/rbac"
 	"github.com/kienbui1995/magic/core/internal/webhook"
 )
 
@@ -134,6 +136,11 @@ func runServer() {
 
 	// Webhook manager — subscribes to events and delivers webhooks
 	wh := webhook.New(s, bus)
+
+	// RBAC + Policy engine
+	rbacEnforcer := rbac.New(s)
+	policyEngine := policy.New(s, bus)
+
 	wh.Start()
 
 	gw := gateway.New(gateway.Deps{
@@ -149,6 +156,8 @@ func runServer() {
 		Knowledge:    kb,
 		Dispatcher:   disp,
 		Webhook:      wh,
+		RBAC:         rbacEnforcer,
+		Policy:       policyEngine,
 	})
 
 	if s.HasAnyWorkerTokens() {
@@ -194,6 +203,8 @@ func runServer() {
 		fmt.Println("  GET  /metrics                  — Prometheus metrics (no auth)")
 		fmt.Println("  GET  /health                   — Health check")
 		fmt.Println("  POST /api/v1/orgs/{orgID}/webhooks — Register webhook")
+		fmt.Println("  POST /api/v1/orgs/{orgID}/roles    — Manage RBAC roles")
+		fmt.Println("  POST /api/v1/orgs/{orgID}/policies  — Manage policies")
 
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Fprintf(os.Stderr, "Server error: %v\n", err)

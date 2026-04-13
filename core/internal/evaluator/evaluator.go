@@ -8,42 +8,87 @@ import (
 	"github.com/kienbui1995/magic/core/internal/protocol"
 )
 
+// Result holds the outcome of an evaluation.
 type Result struct {
 	Pass   bool     `json:"pass"`
 	Errors []string `json:"errors,omitempty"`
 }
 
+// EvalPlugin defines the interface for evaluation plugins.
+// Implementations validate task output and return pass/fail with error details.
+type EvalPlugin interface {
+	Name() string
+	Evaluate(output json.RawMessage, task *protocol.Task) Result
+}
+
+// Evaluator runs all registered plugins against task output.
 type Evaluator struct {
-	bus *events.Bus
+	bus     *events.Bus
+	plugins []EvalPlugin
 }
 
+// New creates a new Evaluator with the built-in schema validator.
 func New(bus *events.Bus) *Evaluator {
-	return &Evaluator{bus: bus}
+	e := &Evaluator{bus: bus}
+	e.RegisterPlugin(SchemaValidator{})
+	return e
 }
 
-func (e *Evaluator) Evaluate(output json.RawMessage, contract protocol.Contract) Result {
-	var result Result
-	result.Pass = true
+// RegisterPlugin adds a custom evaluation plugin.
+func (e *Evaluator) RegisterPlugin(p EvalPlugin) {
+	e.plugins = append(e.plugins, p)
+}
 
-	if len(contract.OutputSchema) > 0 {
-		schemaErrors := validateSchema(output, contract.OutputSchema)
-		if len(schemaErrors) > 0 {
-			result.Pass = false
-			result.Errors = append(result.Errors, schemaErrors...)
+// Evaluate runs all plugins and aggregates results.
+func (e *Evaluator) Evaluate(output json.RawMessage, contract protocol.Contract) Result {
+	task := &protocol.Task{Contract: contract}
+	return e.EvaluateTask(output, task)
+}
+
+// EvaluateTask runs all plugins with full task context.
+func (e *Evaluator) EvaluateTask(output json.RawMessage, task *protocol.Task) Result {
+	var combined Result
+	combined.Pass = true
+
+	for _, p := range e.plugins {
+		r := p.Evaluate(output, task)
+		if !r.Pass {
+			combined.Pass = false
+			combined.Errors = append(combined.Errors, r.Errors...)
 		}
 	}
 
-	if !result.Pass {
+	if !combined.Pass {
 		e.bus.Publish(events.Event{
 			Type:     "evaluation.failed",
 			Source:   "evaluator",
 			Severity: "warn",
-			Payload:  map[string]any{"errors": result.Errors},
+			Payload:  map[string]any{"errors": combined.Errors},
 		})
 	}
 
-	return result
+	return combined
 }
+
+// --- Built-in plugin: SchemaValidator ---
+
+// SchemaValidator validates task output against the contract's OutputSchema.
+type SchemaValidator struct{}
+
+func (SchemaValidator) Name() string { return "schema_validator" }
+
+func (SchemaValidator) Evaluate(output json.RawMessage, task *protocol.Task) Result {
+	if len(task.Contract.OutputSchema) == 0 {
+		return Result{Pass: true}
+	}
+	errs := validateSchema(output, task.Contract.OutputSchema)
+	if len(errs) > 0 {
+		return Result{Pass: false, Errors: errs}
+	}
+	return Result{Pass: true}
+}
+
+// --- Schema validation helpers (unchanged) ---
 
 func validateSchema(data json.RawMessage, schema json.RawMessage) []string {
 	var schemaMap map[string]any
