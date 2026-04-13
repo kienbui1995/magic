@@ -9,6 +9,8 @@
 
 MagiC is an open-source framework for managing fleets of AI workers. Think **Kubernetes for AI agents** — it doesn't build agents, it manages any agents built with any tool (CrewAI, LangChain, custom bots, etc.) through an open protocol.
 
+> **[👉 Try the live demo](https://magic-team-assistant.streamlit.app)** — see MagiC in action, no setup required
+
 ```
          You (CEO)
           |
