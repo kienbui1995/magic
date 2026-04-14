@@ -2,6 +2,13 @@
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
+/** Strip trailing slashes without regex (avoids ReDoS). */
+function stripTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s[end - 1] === "/") end--;
+  return s.slice(0, end);
+}
+
 interface WorkerOptions {
   name: string;
   endpoint: string;
@@ -42,7 +49,7 @@ export class Worker {
       capabilities: Array.from(this.capabilities.values()).map(({ name, description }) => ({ name, description })),
       endpoint: { type: "http", url: this.endpoint },
     };
-    const res = await fetch(`${serverURL.replace(/\/+$/, "")}/api/v1/workers/register`, {
+    const res = await fetch(`${stripTrailingSlashes(serverURL)}/api/v1/workers/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

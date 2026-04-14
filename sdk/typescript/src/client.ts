@@ -41,12 +41,19 @@ export interface Workflow {
   steps: Record<string, unknown>[];
 }
 
+/** Strip trailing slashes without regex (avoids ReDoS). */
+function stripTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s[end - 1] === "/") end--;
+  return s.slice(0, end);
+}
+
 export class MagiCClient {
   private baseURL: string;
   private headers: Record<string, string>;
 
   constructor(baseURL: string, apiKey?: string) {
-    this.baseURL = baseURL.replace(/\/+$/, "");
+    this.baseURL = stripTrailingSlashes(baseURL);
     this.headers = { "Content-Type": "application/json" };
     if (apiKey) {
       this.headers["Authorization"] = `Bearer ${apiKey}`;
