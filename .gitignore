@@ -24,3 +24,4 @@ core/magic
 .playwright-mcp/
 sdk/typescript/dist/
 sdk/typescript/node_modules/
+.mcp.json
