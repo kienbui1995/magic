@@ -154,7 +154,17 @@ func runServer() {
 			configPath = os.Args[i+1]
 		}
 	}
-	cfg, err := config.Load(configPath)
+	// Secret provider is constructed before config so credentials can be
+	// resolved through it (MAGIC_API_KEY, MAGIC_POSTGRES_URL, LLM keys).
+	// Non-secret knobs (port, proxy trust, pool sizes, pgvector dim) stay
+	// on direct os.Getenv. See docs/security/secrets.md.
+	secretProvider, err := secrets.NewFromEnv()
+	if err != nil {
+		log.Fatalf("Failed to init secret provider: %v", err)
+	}
+	log.Printf("[secrets] provider: %s", secretProvider.Name())
+
+	cfg, err := config.LoadWithSecrets(context.Background(), configPath, secretProvider)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -177,16 +187,6 @@ func runServer() {
 	} else {
 		log.Printf("[tracing] disabled (set OTEL_EXPORTER_OTLP_ENDPOINT to enable)")
 	}
-
-	// Secret provider — abstraction layer; not yet used by handlers.
-	// A follow-up will migrate MAGIC_API_KEY / MAGIC_POSTGRES_URL / LLM
-	// keys through this provider. See docs/security/secrets.md.
-	secretProvider, err := secrets.NewFromEnv()
-	if err != nil {
-		log.Fatalf("Failed to init secret provider: %v", err)
-	}
-	log.Printf("[secrets] provider: %s", secretProvider.Name())
-	_ = secretProvider // wired in startup; callers migrate in follow-up
 
 	port := cfg.Port
 
@@ -346,6 +346,7 @@ func runServer() {
 		Prompts:      prompts,
 		Memory:       agentMemory,
 		OIDC:         oidcVerifier,
+		APIKey:       cfg.APIKey,
 	})
 
 	if s.HasAnyWorkerTokens(context.Background()) {
@@ -370,8 +371,8 @@ func runServer() {
 
 	go func() {
 		fmt.Printf("MagiC server starting on :%s\n", port)
-		if os.Getenv("MAGIC_API_KEY") != "" {
-			fmt.Println("  Authentication: enabled (MAGIC_API_KEY)")
+		if cfg.APIKey != "" {
+			fmt.Println("  Authentication: enabled (MAGIC_API_KEY via " + secretProvider.Name() + ")")
 		} else {
 			fmt.Println("  Authentication: disabled (set MAGIC_API_KEY to enable)")
 		}
