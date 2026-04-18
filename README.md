@@ -4,6 +4,9 @@
 [![Go 1.25+](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)](https://go.dev)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python)](https://python.org)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/kienbui1995/magic/badge)](https://scorecard.dev/viewer/?uri=github.com/kienbui1995/magic)
+[![govulncheck](https://github.com/kienbui1995/magic/actions/workflows/ci.yml/badge.svg)](https://github.com/kienbui1995/magic/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/kienbui1995/magic/core)](https://goreportcard.com/report/github.com/kienbui1995/magic/core)
 
 > Don't build another AI. Manage the ones you have.
 

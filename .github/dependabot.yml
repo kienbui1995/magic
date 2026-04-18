@@ -1,0 +1,117 @@
+version: 2
+
+updates:
+  # Go — core module
+  - package-ecosystem: gomod
+    directory: /core
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    reviewers:
+      - kienbui1995
+    labels:
+      - dependencies
+      - go
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    groups:
+      core-prod:
+        dependency-type: production
+      core-dev:
+        dependency-type: development
+
+  # Go — SDK
+  - package-ecosystem: gomod
+    directory: /sdk/go
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    reviewers:
+      - kienbui1995
+    labels:
+      - dependencies
+      - go-sdk
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+
+  # Python SDK
+  - package-ecosystem: pip
+    directory: /sdk/python
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    reviewers:
+      - kienbui1995
+    labels:
+      - dependencies
+      - python
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    groups:
+      python-prod:
+        dependency-type: production
+      python-dev:
+        dependency-type: development
+
+  # TypeScript SDK
+  - package-ecosystem: npm
+    directory: /sdk/typescript
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    reviewers:
+      - kienbui1995
+    labels:
+      - dependencies
+      - typescript
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+
+  # Root npm (VitePress docs)
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    reviewers:
+      - kienbui1995
+    labels:
+      - dependencies
+      - docs
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+
+  # Docker image
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    reviewers:
+      - kienbui1995
+    labels:
+      - dependencies
+      - docker
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    reviewers:
+      - kienbui1995
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: "chore(ci)"
+      include: scope
