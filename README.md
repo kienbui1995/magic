@@ -1,6 +1,7 @@
 # MagiC
 
 [![CI](https://github.com/kienbui1995/magic/actions/workflows/ci.yml/badge.svg)](https://github.com/kienbui1995/magic/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/kienbui1995/magic/branch/main/graph/badge.svg)](https://codecov.io/gh/kienbui1995/magic)
 [![Go 1.25+](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)](https://go.dev)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python)](https://python.org)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
