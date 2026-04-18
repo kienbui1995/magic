@@ -133,47 +133,61 @@ func workerAuthMiddleware(s store.Store) func(http.Handler) http.Handler {
 
 const maxBodySize = 1 << 20 // 1 MB
 
-func authMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip admin auth for health, dashboard, and worker lifecycle endpoints.
-		// Worker endpoints (/workers/register, /workers/heartbeat) have their own
-		// workerAuthMiddleware — they must not require the admin API key.
-		workerPaths := r.URL.Path == "/api/v1/workers/register" ||
-			r.URL.Path == "/api/v1/workers/heartbeat"
-		if r.URL.Path == "/health" || r.URL.Path == "/dashboard" || r.URL.Path == "/metrics" || workerPaths {
+// authMiddleware enforces admin API-key authentication when configured.
+//
+// The apiKey argument is resolved once at server startup via
+// secrets.Provider (see cmd/magic/main.go) and captured in this closure
+// so there is no per-request env lookup. When apiKey is empty, the
+// middleware falls back to os.Getenv("MAGIC_API_KEY") so existing tests
+// that set the env var directly keep working; in production, main.go
+// always passes a non-empty value and the fallback is a no-op.
+func authMiddleware(apiKey string) func(http.Handler) http.Handler {
+	if apiKey == "" {
+		// Fallback preserves the historical contract for tests and dev
+		// shells that export MAGIC_API_KEY after the process started.
+		apiKey = os.Getenv("MAGIC_API_KEY")
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Skip admin auth for health, dashboard, and worker lifecycle endpoints.
+			// Worker endpoints (/workers/register, /workers/heartbeat) have their own
+			// workerAuthMiddleware — they must not require the admin API key.
+			workerPaths := r.URL.Path == "/api/v1/workers/register" ||
+				r.URL.Path == "/api/v1/workers/heartbeat"
+			if r.URL.Path == "/health" || r.URL.Path == "/dashboard" || r.URL.Path == "/metrics" || workerPaths {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// If the OIDC middleware already authenticated this request
+			// (JWT bearer), bypass the API-key check.
+			if auth.IsJWTAuthed(r.Context()) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if apiKey == "" {
+				// No API key configured — allow all (dev mode)
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			token := r.Header.Get("Authorization")
+			if token == "" {
+				token = r.Header.Get("X-API-Key")
+			}
+			bearerToken := "Bearer " + apiKey
+			if subtle.ConstantTimeCompare([]byte(token), []byte(bearerToken)) != 1 &&
+				subtle.ConstantTimeCompare([]byte(token), []byte(apiKey)) != 1 {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write([]byte(`{"error": "unauthorized"}`))
+				return
+			}
+
 			next.ServeHTTP(w, r)
-			return
-		}
-
-		// If the OIDC middleware already authenticated this request
-		// (JWT bearer), bypass the API-key check.
-		if auth.IsJWTAuthed(r.Context()) {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		apiKey := os.Getenv("MAGIC_API_KEY")
-		if apiKey == "" {
-			// No API key configured — allow all (dev mode)
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		token := r.Header.Get("Authorization")
-		if token == "" {
-			token = r.Header.Get("X-API-Key")
-		}
-		bearerToken := "Bearer " + apiKey
-		if subtle.ConstantTimeCompare([]byte(token), []byte(bearerToken)) != 1 &&
-			subtle.ConstantTimeCompare([]byte(token), []byte(apiKey)) != 1 {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte(`{"error": "unauthorized"}`))
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
+		})
+	}
 }
 
 func bodySizeMiddleware(next http.Handler) http.Handler {

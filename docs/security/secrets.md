@@ -108,14 +108,34 @@ type RotatingProvider interface {
 Vault's lease renewal and AWS Secrets Manager's rotation schedule both
 map to this shape. Callers type-assert for the capability.
 
-## Call Sites to Migrate (Follow-up)
+## Migrated Call Sites
 
-Today these read `os.Getenv` directly; a follow-up commit will route
-them through the provider:
+The following credentials now flow through `secrets.Provider` and are
+resolved at server startup in `cmd/magic/main.go` via
+`config.LoadWithSecrets(ctx, path, sp)`:
 
-- `core/internal/gateway/middleware.go` — `MAGIC_API_KEY`, `MAGIC_CORS_ORIGIN`
-- `core/internal/config/config.go` — `MAGIC_POSTGRES_URL`, LLM keys
-- `core/cmd/magic/main.go` — `MAGIC_PGVECTOR_DIM`, pool-size knobs (non-secret, likely stay)
+| Secret name          | Purpose                         | Consumer |
+|----------------------|---------------------------------|----------|
+| `MAGIC_API_KEY`      | Admin API-key for gateway auth  | `gateway.authMiddleware` (read once; captured in closure) |
+| `MAGIC_POSTGRES_URL` | PostgreSQL connection string    | `store.NewPostgreSQLStore` |
+| `OPENAI_API_KEY`     | OpenAI LLM provider             | `llm.NewOpenAIProvider` |
+| `ANTHROPIC_API_KEY`  | Anthropic LLM provider          | `llm.NewAnthropicProvider` |
 
-Non-secret knobs (ports, timeouts, feature flags) stay in env; only
-genuine credentials go through the provider.
+With `MAGIC_SECRETS_PROVIDER=env` (default) the behavior is identical
+to reading `os.Getenv` directly. To source any of these from Vault or
+AWS Secrets Manager, implement the corresponding provider and set
+`MAGIC_SECRETS_PROVIDER`; no code changes are required at the call
+sites.
+
+### Non-secret knobs (stay on `os.Getenv`)
+
+These are operational knobs, not credentials, and continue to read
+`os.Getenv` directly:
+
+- `MAGIC_PORT`, `MAGIC_TRUSTED_PROXY`, `MAGIC_CORS_ORIGIN`
+- `MAGIC_POSTGRES_POOL_MIN`, `MAGIC_POSTGRES_POOL_MAX`, `MAGIC_PGVECTOR_DIM`
+- `MAGIC_STORE` (SQLite path), `OPENAI_BASE_URL`, `OLLAMA_URL`
+- `MAGIC_RATE_LIMIT_DISABLE`, `MAGIC_REDIS_URL`, `MAGIC_OIDC_*`
+- OpenTelemetry standard env vars (`OTEL_*`)
+
+Only genuine credentials go through the provider.

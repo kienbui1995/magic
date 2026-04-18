@@ -55,6 +55,12 @@ type Deps struct {
 	Prompts      *prompt.Registry   // nil = prompt features disabled
 	Memory       *memory.Store      // nil = memory features disabled
 	OIDC         *auth.OIDCVerifier // nil = OIDC/JWT auth disabled
+	// APIKey is the admin API key enforced by authMiddleware. Resolved
+	// via secrets.Provider at startup; empty = no API-key auth (dev
+	// mode). If empty, the middleware falls back to os.Getenv(
+	// "MAGIC_API_KEY") for backward compatibility with tests that set
+	// the env var directly — production should always set APIKey.
+	APIKey       string
 }
 
 // Gateway is the HTTP entry point for the MagiC server.
@@ -205,7 +211,7 @@ func (g *Gateway) Handler() http.Handler {
 	handler = rbacMiddleware(g.deps.RBAC)(handler)
 	handler = requestIDMiddleware(handler)
 	handler = bodySizeMiddleware(handler)
-	handler = authMiddleware(handler)
+	handler = authMiddleware(g.deps.APIKey)(handler)
 	// OIDC runs before authMiddleware so that a valid JWT can bypass
 	// the API-key check (the two are alternatives, not both-required).
 	handler = auth.OIDCMiddleware(g.deps.OIDC)(handler)
