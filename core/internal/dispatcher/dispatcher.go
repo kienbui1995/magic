@@ -250,7 +250,7 @@ func (d *Dispatcher) handleComplete(ctx context.Context, task *protocol.Task, wo
 
 	// Track cost
 	if d.costCtrl != nil && cp.Cost > 0 {
-		d.costCtrl.RecordCost(worker.ID, task.ID, cp.Cost)
+		d.costCtrl.RecordCostCtx(ctx, worker.ID, task.ID, cp.Cost)
 	}
 
 	// Update worker load

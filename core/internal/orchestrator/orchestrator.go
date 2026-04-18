@@ -12,6 +12,7 @@ import (
 	"github.com/kienbui1995/magic/core/internal/protocol"
 	"github.com/kienbui1995/magic/core/internal/router"
 	"github.com/kienbui1995/magic/core/internal/store"
+	"github.com/kienbui1995/magic/core/internal/tracing"
 )
 
 type Orchestrator struct {
@@ -35,7 +36,16 @@ func (o *Orchestrator) SetShutdownContext(ctx context.Context) { o.ctx = ctx }
 func (o *Orchestrator) Wait() { o.wg.Wait() }
 
 func (o *Orchestrator) Submit(name string, steps []protocol.WorkflowStep, ctx protocol.TaskContext) (*protocol.Workflow, error) {
+	_, span := tracing.StartSpan(o.ctx, "orchestrator.Submit")
+	defer span.End()
+	span.SetAttr("workflow.name", name)
+	span.SetAttr("workflow.steps", len(steps))
+	if ctx.OrgID != "" {
+		span.SetAttr("org.id", ctx.OrgID)
+	}
+
 	if err := ValidateDAG(steps); err != nil {
+		span.SetError(err)
 		return nil, fmt.Errorf("invalid workflow: %w", err)
 	}
 
@@ -51,6 +61,7 @@ func (o *Orchestrator) Submit(name string, steps []protocol.WorkflowStep, ctx pr
 		Context:   ctx,
 		CreatedAt: time.Now(),
 	}
+	span.SetAttr("workflow.id", wf.ID)
 
 	if err := o.store.AddWorkflow(o.ctx, wf); err != nil {
 		return nil, err
@@ -188,6 +199,12 @@ func (o *Orchestrator) advanceWorkflowLocked(wf *protocol.Workflow) {
 }
 
 func (o *Orchestrator) dispatchStep(wf *protocol.Workflow, step *protocol.WorkflowStep) {
+	_, span := tracing.StartSpan(o.ctx, "orchestrator.dispatchStep")
+	defer span.End()
+	span.SetAttr("workflow.id", wf.ID)
+	span.SetAttr("step.id", step.ID)
+	span.SetAttr("step.task_type", step.TaskType)
+
 	// Check if step needs approval before dispatch
 	if step.ApprovalRequired {
 		step.Status = protocol.StepAwaitApproval
@@ -242,7 +259,7 @@ func (o *Orchestrator) dispatchStep(wf *protocol.Workflow, step *protocol.Workfl
 		CreatedAt:  time.Now(),
 	}
 
-	worker, err := o.router.RouteTask(task)
+	worker, err := o.router.RouteTaskCtx(o.ctx, task)
 	if err != nil {
 		step.Status = protocol.StepFailed
 		step.Error = &protocol.TaskError{Code: "no_worker", Message: err.Error()}
