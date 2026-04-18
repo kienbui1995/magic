@@ -32,6 +32,7 @@ import (
 	"github.com/kienbui1995/magic/core/internal/prompt"
 	"github.com/kienbui1995/magic/core/internal/registry"
 	"github.com/kienbui1995/magic/core/internal/router"
+	"github.com/kienbui1995/magic/core/internal/secrets"
 	"github.com/kienbui1995/magic/core/internal/store"
 	"github.com/kienbui1995/magic/core/internal/policy"
 	"github.com/kienbui1995/magic/core/internal/rbac"
@@ -155,6 +156,16 @@ func runServer() {
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+
+	// Secret provider — abstraction layer; not yet used by handlers.
+	// A follow-up will migrate MAGIC_API_KEY / MAGIC_POSTGRES_URL / LLM
+	// keys through this provider. See docs/security/secrets.md.
+	secretProvider, err := secrets.NewFromEnv()
+	if err != nil {
+		log.Fatalf("Failed to init secret provider: %v", err)
+	}
+	log.Printf("[secrets] provider: %s", secretProvider.Name())
+	_ = secretProvider // wired in startup; callers migrate in follow-up
 
 	port := cfg.Port
 
