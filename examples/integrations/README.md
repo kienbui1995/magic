@@ -14,6 +14,9 @@ without touching the agent logic you already trust.
 | [CrewAI](./crewai) | 2-agent crew (researcher + writer) wrapped as one capability `research_and_write` | Cost tracking, RBAC, audit, retries for CrewAI kickoffs |
 | [LangChain](./langchain) | Tool-calling agent (calculator + DuckDuckGo) as capability `qa_with_tools` | Retry + circuit breaker on flaky LLM calls, per-task cost cap, tool-use metrics |
 | [AutoGen](./autogen) | 3-agent GroupChat (PM → Engineer → Critic) as capability `product_spec_review` | Timeout on runaway debates, budget protection, clean single-capability interface |
+| [LlamaIndex](./llamaindex) | `VectorStoreIndex` RAG query engine as capability `rag_query` | Per-query cost tracking (LLM + embeddings), budget caps, SSE streaming, fallback workers |
+| [Haystack](./haystack) | 4-stage QA pipeline (embed → retrieve → prompt → generate) as capability `qa_pipeline` | Enterprise observability around production Haystack pipelines — not just a POC |
+| [DSPy](./dspy) | `ChainOfThought` intent classifier as capability `classify_intent` | A/B testing of compiled variants, per-variant cost tracking, router-level routing strategies |
 
 ## The wrapper pattern
 
@@ -70,12 +73,13 @@ version of that skeleton.
 
 Have a framework not listed here? **Send a PR.**
 
+Already covered: CrewAI, LangChain, AutoGen, LlamaIndex, Haystack, DSPy.
+
 Good candidates next:
-- **LlamaIndex** — expose a query engine over a knowledge base as a capability.
-- **Haystack** — wrap a RAG pipeline.
-- **DSPy** — expose a compiled DSPy program.
 - **Smolagents** — expose a code-executing agent under a safety-constrained capability.
-- **Custom FastAPI / Flask agents** — wrap an internal microservice you already run.
+- **Semantic Kernel** — wrap a Microsoft Semantic Kernel planner as a capability.
+- **AWS Bedrock Agents** — expose a managed Bedrock agent behind the same MagiC fleet controls.
+- **Plain FastAPI / Flask agents** — wrap an internal microservice you already run.
 
 Checklist for a new example:
 - Self-contained `examples/integrations/<framework>/` folder.
