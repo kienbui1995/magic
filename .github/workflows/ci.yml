@@ -136,8 +136,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
       - name: Run gosec
-        # TODO pin SHA — upstream publishes @master only; track release tag when available
-        uses: securego/gosec@master
+        uses: securego/gosec@223e19b8856e00f02cc67804499a83f77e208f3c  # v2.25.0
         with:
           args: '-fmt sarif -out gosec-results.sarif ./core/...'
       - name: Upload SARIF to code-scanning
