@@ -1,0 +1,56 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: magic-dev
+    environment: dev
+
+rule_files:
+  - /etc/prometheus/alerts.yaml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            # Uncomment when alertmanager is enabled in docker-compose.observability.yml
+            # - alertmanager:9093
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # MagiC framework — /metrics endpoint (no auth required)
+  - job_name: magic
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    static_configs:
+      - targets: ["magic:8080"]
+        labels:
+          service: magic
+          component: core
+
+  # Example Kubernetes service discovery (commented — enable when running in K8s):
+  # - job_name: magic-k8s
+  #   kubernetes_sd_configs:
+  #     - role: pod
+  #       namespaces:
+  #         names: [magic]
+  #   relabel_configs:
+  #     - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+  #       action: keep
+  #       regex: "true"
+  #     - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+  #       target_label: __metrics_path__
+  #       regex: (.+)
+  #     - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+  #       action: replace
+  #       regex: ([^:]+)(?::\d+)?;(\d+)
+  #       replacement: $1:$2
+  #       target_label: __address__
+  #     - source_labels: [__meta_kubernetes_pod_name]
+  #       target_label: pod
+  #     - source_labels: [__meta_kubernetes_namespace]
+  #       target_label: namespace

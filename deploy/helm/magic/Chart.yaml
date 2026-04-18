@@ -1,0 +1,36 @@
+apiVersion: v2
+name: magic
+description: |
+  MagiC — Open-source framework for managing fleets of AI workers.
+  "Kubernetes for AI agents" — transport-agnostic MCP² protocol, multi-tenant,
+  cost-controlled, observable. Deploys the Go-based MagiC control plane with
+  optional PostgreSQL + pgvector backend for production workloads.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+kubeVersion: ">=1.24.0-0"
+home: https://github.com/kienbui1995/magic
+icon: https://raw.githubusercontent.com/kienbui1995/magic/main/docs-site/public/logo.png
+sources:
+  - https://github.com/kienbui1995/magic
+keywords:
+  - ai
+  - agents
+  - orchestration
+  - mcp
+  - llm
+  - workflow
+  - multi-agent
+maintainers:
+  - name: Kien Bui
+    url: https://github.com/kienbui1995
+annotations:
+  category: AI/ML
+  licenses: Apache-2.0
+dependencies:
+  - name: postgresql
+    version: "15.5.x"
+    repository: oci://registry-1.docker.io/bitnamicharts
+    condition: postgresql.enabled
+    tags:
+      - database

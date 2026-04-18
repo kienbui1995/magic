@@ -1,0 +1,119 @@
+groups:
+  - name: magic.rules
+    interval: 30s
+    rules:
+      # Task error rate > 5% in 5m
+      - alert: MagicHighErrorRate
+        expr: |
+          100 * (
+            sum(rate(magic_tasks_total{status="failed"}[5m])) or vector(0)
+          ) / (sum(rate(magic_tasks_total[5m])) > 0) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: magic
+        annotations:
+          summary: "MagiC task error rate above 5% (current: {{ $value | printf \"%.2f\" }}%)"
+          description: "More than 5% of tasks are failing over the last 5 minutes. Check worker health, router logs, and any recent deploys."
+          runbook_url: "https://docs.example.com/runbooks/magic-high-error-rate"
+
+      # Task p99 > 30s in 10m — histogram_quantile only returns values if the histogram is populated.
+      # If magic_task_duration_seconds_bucket is empty, this alert stays silent (absent()).
+      - alert: MagicHighLatency
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (le) (rate(magic_task_duration_seconds_bucket[10m]))
+          ) > 30
+        for: 10m
+        labels:
+          severity: warning
+          component: magic
+        annotations:
+          summary: "MagiC task p99 latency above 30s (current: {{ $value | printf \"%.2f\" }}s)"
+          description: "99th-percentile task duration has exceeded 30s for 10m. Check slow workers, LLM provider latency, or router saturation."
+          runbook_url: "https://docs.example.com/runbooks/magic-high-latency"
+
+      # Webhook delivery failure rate > 10% in 10m
+      - alert: MagicWebhookDeliveryFailures
+        expr: |
+          100 * (
+            sum(rate(magic_webhook_deliveries_total{status=~"failed|dead"}[10m])) or vector(0)
+          ) / (sum(rate(magic_webhook_deliveries_total[10m])) > 0) > 10
+        for: 10m
+        labels:
+          severity: warning
+          component: webhook
+        annotations:
+          summary: "Webhook delivery failure rate above 10% (current: {{ $value | printf \"%.2f\" }}%)"
+          description: "More than 10% of webhook delivery attempts have failed in the last 10 minutes. Subscribers may be down or misconfigured."
+          runbook_url: "https://docs.example.com/runbooks/magic-webhook-failures"
+
+      # Budget-burn signal: any org spent > $100 in the last hour (tune threshold to your ops budget).
+      # NOTE: MagiC does not yet expose a dedicated `magic_budget_exceeded_total` counter; the source
+      # of truth today is the `budget.exceeded` event on the bus, which surfaces via webhooks/logs.
+      # This cost-rate heuristic is an approximation — consider adding a bus-sourced counter for a
+      # precise signal. See the README "Metrics currently exposed" table.
+      - alert: MagicBudgetBurnHigh
+        expr: sum by (org) (increase(magic_cost_total_usd[1h])) > 100
+        for: 5m
+        labels:
+          severity: critical
+          component: costctrl
+        annotations:
+          summary: "Org {{ $labels.org }} burned ${{ $value | printf \"%.2f\" }} in 1 hour"
+          description: "Organization {{ $labels.org }} spent more than $100 in the last hour. Investigate for runaway workers or misconfigured budgets, and check `/api/v1/costs`."
+          runbook_url: "https://docs.example.com/runbooks/magic-budget-exceeded"
+
+      # Worker offline — heartbeat lag > 5m.
+      # NOTE: magic_worker_heartbeat_lag_seconds is declared but not yet wired up in monitor/metrics.go;
+      # this alert stays silent until the gauge is populated. Safe to ship as a forward-looking rule.
+      - alert: MagicWorkerOffline
+        expr: magic_worker_heartbeat_lag_seconds > 300
+        for: 2m
+        labels:
+          severity: warning
+          component: registry
+        annotations:
+          summary: "Worker {{ $labels.worker }} has not sent heartbeat for >5m"
+          description: "Worker {{ $labels.worker }} appears offline (last heartbeat {{ $value | printf \"%.0f\" }}s ago). Tasks requiring this worker's capabilities will route to alternates or fail."
+          runbook_url: "https://docs.example.com/runbooks/magic-worker-offline"
+
+      # Spike in failures when no worker is available for routing
+      - alert: MagicNoWorkersAvailable
+        expr: |
+          sum(rate(magic_tasks_total{status="failed"}[5m])) > 0
+          and on()
+          sum(magic_workers_active) < 1
+        for: 3m
+        labels:
+          severity: critical
+          component: registry
+        annotations:
+          summary: "Tasks failing with no active workers registered"
+          description: "Tasks are failing and magic_workers_active reports zero workers. The fleet is empty — check worker health, tokens, and connectivity."
+          runbook_url: "https://docs.example.com/runbooks/magic-no-workers"
+
+      # DLQ (dead webhook deliveries) growing fast — >100 dead events in 1h
+      - alert: MagicDLQGrowing
+        expr: sum(increase(magic_webhook_deliveries_total{status="dead"}[1h])) > 100
+        for: 10m
+        labels:
+          severity: warning
+          component: webhook
+        annotations:
+          summary: "Webhook DLQ (dead deliveries) growing >100/hour"
+          description: "{{ $value | printf \"%.0f\" }} webhook deliveries moved to dead status in the last hour. Subscribers may be permanently broken; inspect DLQ via /api/v1/dlq and /api/v1/orgs/{orgID}/webhooks/{webhookID}/deliveries."
+          runbook_url: "https://docs.example.com/runbooks/magic-dlq-growing"
+
+      # Bonus: rate-limit pressure — alert if any endpoint is rejecting >1 req/s sustained
+      - alert: MagicRateLimitPressure
+        expr: sum by (endpoint) (rate(magic_rate_limit_hits_total[10m])) > 1
+        for: 10m
+        labels:
+          severity: info
+          component: gateway
+        annotations:
+          summary: "Rate-limit hits on {{ $labels.endpoint }} above 1/s"
+          description: "Endpoint {{ $labels.endpoint }} is rejecting requests at {{ $value | printf \"%.2f\" }} req/s. Confirm this is abusive traffic, or raise the limit."
+          runbook_url: "https://docs.example.com/runbooks/magic-rate-limit-pressure"

@@ -1,0 +1,69 @@
+MagiC has been deployed to the "{{ .Release.Namespace }}" namespace as
+release "{{ .Release.Name }}".
+
+1. Wait for the Deployment to become ready:
+
+   kubectl rollout status deployment/{{ include "magic.fullname" . }} \
+     --namespace {{ .Release.Namespace }} --timeout=120s
+
+2. Test the health endpoint (port-forward):
+
+   kubectl port-forward svc/{{ include "magic.fullname" . }} \
+     -n {{ .Release.Namespace }} 8080:{{ .Values.service.port }} &
+   curl http://localhost:8080/health
+
+{{- if .Values.ingress.enabled }}
+
+3. External URLs (Ingress enabled):
+
+{{- range $host := .Values.ingress.hosts }}
+  {{- range .paths }}
+   {{ if $.Values.ingress.tls }}https{{ else }}http{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+{{- else }}
+
+3. Enable external access:
+   - Set `ingress.enabled=true` plus `ingress.hosts`, OR
+   - Change `service.type` to `LoadBalancer` / `NodePort`.
+{{- end }}
+
+4. Retrieve the admin API key for CLI / SDK clients:
+
+{{- if .Values.secrets.existingSecret }}
+   kubectl get secret {{ .Values.secrets.existingSecret }} \
+     -n {{ .Release.Namespace }} \
+     -o jsonpath='{.data.MAGIC_API_KEY}' | base64 -d; echo
+{{- else }}
+   kubectl get secret {{ include "magic.secretName" . }} \
+     -n {{ .Release.Namespace }} \
+     -o jsonpath='{.data.MAGIC_API_KEY}' | base64 -d; echo
+{{- end }}
+
+{{- if .Values.postgresql.enabled }}
+
+5. PostgreSQL is deployed as a subchart. Check migrations ran:
+
+   kubectl logs deployment/{{ include "magic.fullname" . }} \
+     -n {{ .Release.Namespace }} | grep -i migration
+
+   NOTE: Semantic search requires pgvector. The default chart pins
+   `pgvector/pgvector:pg16` so `CREATE EXTENSION vector` will succeed.
+{{- end }}
+
+------------------------------------------------------------------
+Upgrade:
+  helm upgrade {{ .Release.Name }} . \
+    -n {{ .Release.Namespace }} --reuse-values
+
+Rollback:
+  helm rollback {{ .Release.Name }} --namespace {{ .Release.Namespace }}
+
+Uninstall (Postgres PVC is NOT deleted automatically):
+  helm uninstall {{ .Release.Name }} --namespace {{ .Release.Namespace }}
+
+Troubleshooting:
+  kubectl describe pod -l app.kubernetes.io/instance={{ .Release.Name }} \
+    -n {{ .Release.Namespace }}
+  kubectl logs -l app.kubernetes.io/instance={{ .Release.Name }} \
+    -n {{ .Release.Namespace }} --tail=100 -f

@@ -1,0 +1,35 @@
+# Replace `magic.example.com` and the ingress annotations to match your ingress
+# controller and cert-manager setup. This example targets nginx-ingress with
+# cert-manager for automatic TLS from Let's Encrypt.
+#
+# SSE / streaming endpoints (`/api/v1/tasks/stream`) REQUIRE disabling buffering.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: magic
+  namespace: magic
+  labels:
+    app.kubernetes.io/name: magic
+    app.kubernetes.io/part-of: magic
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - magic.example.com
+      secretName: magic-tls
+  rules:
+    - host: magic.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: magic
+                port:
+                  number: 80

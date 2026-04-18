@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magic-config
+  namespace: magic
+  labels:
+    app.kubernetes.io/name: magic
+    app.kubernetes.io/part-of: magic
+data:
+  # Comma-separated list of allowed CORS origins. Leave empty to disable CORS.
+  MAGIC_CORS_ORIGIN: ""
+  # Set to "true" when behind an ingress / reverse proxy so X-Forwarded-For
+  # is trusted for per-client rate limiting.
+  MAGIC_TRUSTED_PROXY: "true"
+  # Embedding dimension for pgvector semantic search.
+  MAGIC_PGVECTOR_DIM: "1536"
+  # PostgreSQL pool sizing — only used when MAGIC_POSTGRES_URL is set.
+  MAGIC_POSTGRES_POOL_MIN: "2"
+  MAGIC_POSTGRES_POOL_MAX: "20"
+  # OPTIONAL — OpenTelemetry OTLP/HTTP endpoint for trace export.
+  # MAGIC_OTEL_ENDPOINT: "http://otel-collector.monitoring.svc.cluster.local:4318"
