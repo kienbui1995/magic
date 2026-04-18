@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/kienbui1995/magic/core/internal/events"
+	"github.com/kienbui1995/magic/core/internal/monitor"
 	"github.com/kienbui1995/magic/core/internal/protocol"
 )
 
@@ -35,7 +36,14 @@ func (r *Registry) checkHealth() {
 	ctx := context.TODO()
 	workers := r.store.ListWorkers(ctx)
 	now := time.Now()
+	// Reset gauge to avoid stale series for deregistered workers.
+	monitor.MetricWorkerHeartbeatLag.Reset()
 	for _, w := range workers {
+		lag := now.Sub(w.LastHeartbeat).Seconds()
+		if lag < 0 {
+			lag = 0
+		}
+		monitor.MetricWorkerHeartbeatLag.WithLabelValues(w.ID).Set(lag)
 		if w.Status == protocol.StatusActive && now.Sub(w.LastHeartbeat) > HeartbeatTimeout {
 			// Don't mark offline if worker has in-flight tasks — it may just be busy
 			if w.CurrentLoad > 0 {

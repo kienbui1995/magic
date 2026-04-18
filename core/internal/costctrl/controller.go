@@ -110,8 +110,10 @@ func (c *Controller) RecordCost(workerID, taskID string, cost float64) {
 	// Atomic read-modify-write under lock to prevent lost updates
 	// TODO(ctx): propagate from caller once costctrl API takes ctx.
 	ctx := context.TODO()
+	var orgID string
 	w, err := c.store.GetWorker(ctx, workerID)
 	if err == nil {
+		orgID = w.OrgID
 		w.TotalCostToday += cost
 		c.store.UpdateWorker(ctx, w) //nolint:errcheck
 	}
@@ -123,7 +125,12 @@ func (c *Controller) RecordCost(workerID, taskID string, cost float64) {
 
 	c.bus.Publish(events.Event{
 		Type: "cost.recorded", Source: "costctrl",
-		Payload: map[string]any{"worker_id": workerID, "task_id": taskID, "cost": cost},
+		Payload: map[string]any{
+			"worker_id": workerID,
+			"task_id":   taskID,
+			"cost":      cost,
+			"org_id":    orgID,
+		},
 	})
 }
 
@@ -135,7 +142,7 @@ func (c *Controller) applyPolicies(w *protocol.Worker, cost float64) {
 			// TODO(ctx): propagate from caller once costctrl API takes ctx.
 			c.store.UpdateWorker(context.TODO(), w) //nolint:errcheck
 			c.bus.Publish(events.Event{Type: "budget.exceeded", Source: "costctrl", Severity: "error",
-				Payload: map[string]any{"worker_id": w.ID, "policy": p.Name(),
+				Payload: map[string]any{"worker_id": w.ID, "org_id": w.OrgID, "policy": p.Name(),
 					"spent": w.TotalCostToday, "budget": w.Limits.MaxCostPerDay}})
 			return // stop on first reject
 		case Warn:

@@ -92,4 +92,10 @@ var (
 		Name: "magic_events_dropped_total",
 		Help: "Total number of events dropped due to full buffer.",
 	})
+
+	// Budget — incremented when a cost policy Rejects (hard cap reached).
+	MetricBudgetExceededTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "magic_budget_exceeded_total",
+		Help: "Total number of budget-exceeded rejections from cost policies.",
+	}, []string{"org", "worker", "policy"})
 )

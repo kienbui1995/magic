@@ -49,25 +49,24 @@ groups:
           description: "More than 10% of webhook delivery attempts have failed in the last 10 minutes. Subscribers may be down or misconfigured."
           runbook_url: "https://docs.example.com/runbooks/magic-webhook-failures"
 
-      # Budget-burn signal: any org spent > $100 in the last hour (tune threshold to your ops budget).
-      # NOTE: MagiC does not yet expose a dedicated `magic_budget_exceeded_total` counter; the source
-      # of truth today is the `budget.exceeded` event on the bus, which surfaces via webhooks/logs.
-      # This cost-rate heuristic is an approximation — consider adding a bus-sourced counter for a
-      # precise signal. See the README "Metrics currently exposed" table.
+      # Budget exceeded: any cost policy rejected a worker in the last 5m.
+      # Fires precisely when costctrl.applyPolicies hits Reject (hard cap) — sourced
+      # from the dedicated magic_budget_exceeded_total counter (fed by the
+      # budget.exceeded bus event).
       - alert: MagicBudgetBurnHigh
-        expr: sum by (org) (increase(magic_cost_total_usd[1h])) > 100
-        for: 5m
+        expr: sum by (org, worker, policy) (increase(magic_budget_exceeded_total[5m])) > 0
+        for: 0m
         labels:
           severity: critical
           component: costctrl
         annotations:
-          summary: "Org {{ $labels.org }} burned ${{ $value | printf \"%.2f\" }} in 1 hour"
-          description: "Organization {{ $labels.org }} spent more than $100 in the last hour. Investigate for runaway workers or misconfigured budgets, and check `/api/v1/costs`."
+          summary: "Budget exceeded for org={{ $labels.org }} worker={{ $labels.worker }} policy={{ $labels.policy }}"
+          description: "Cost policy {{ $labels.policy }} rejected worker {{ $labels.worker }} in org {{ $labels.org }}. The worker has been paused. Investigate runaway costs via /api/v1/costs."
           runbook_url: "https://docs.example.com/runbooks/magic-budget-exceeded"
 
       # Worker offline — heartbeat lag > 5m.
-      # NOTE: magic_worker_heartbeat_lag_seconds is declared but not yet wired up in monitor/metrics.go;
-      # this alert stays silent until the gauge is populated. Safe to ship as a forward-looking rule.
+      # Gauge is populated by registry.checkHealth every 30s; stale series are
+      # reset each tick, so deregistered workers drop out of the alert set.
       - alert: MagicWorkerOffline
         expr: magic_worker_heartbeat_lag_seconds > 300
         for: 2m
