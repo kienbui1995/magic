@@ -36,6 +36,38 @@ func (s *PostgreSQLStore) Pool() *pgxpool.Pool { return s.pool }
 // Close closes the connection pool.
 func (s *PostgreSQLStore) Close() { s.pool.Close() }
 
+// WithOrgContext acquires a connection from the pool, sets the session
+// variable `app.current_org_id` (consumed by RLS policies in migration 005),
+// and invokes fn. The variable is reset to empty before returning the
+// connection to the pool, so subsequent users of the pool start in bypass
+// mode unless they also call WithOrgContext.
+//
+// When orgID is empty the connection is returned in bypass mode, which sees
+// all rows — this is intentional for admin/dev paths. Pass a non-empty
+// orgID from request-scoped authenticated handlers to enforce isolation.
+//
+// RLS defence against application bugs: even if a caller forgets to add a
+// WHERE org_id = ... clause, the database will filter rows for them.
+func (s *PostgreSQLStore) WithOrgContext(ctx context.Context, orgID string, fn func(conn *pgxpool.Conn) error) error {
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("pool.Acquire: %w", err)
+	}
+	defer conn.Release()
+
+	// set_config(name, value, is_local=false) is session-scoped and works on
+	// any PG version; the literal name must be passed as text.
+	if _, err := conn.Exec(ctx, "SELECT set_config('app.current_org_id', $1, false)", orgID); err != nil {
+		return fmt.Errorf("set app.current_org_id: %w", err)
+	}
+	// Reset on return to keep pooled connections neutral.
+	defer func() {
+		_, _ = conn.Exec(ctx, "SELECT set_config('app.current_org_id', '', false)")
+	}()
+
+	return fn(conn)
+}
+
 // — Generic helpers —
 
 func pgPut(pool *pgxpool.Pool, table, id string, v any) error {
