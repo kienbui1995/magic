@@ -16,6 +16,7 @@ import (
 	"github.com/kienbui1995/magic/core/internal/monitor"
 	"github.com/kienbui1995/magic/core/internal/protocol"
 	"github.com/kienbui1995/magic/core/internal/store"
+	"github.com/kienbui1995/magic/core/internal/tracing"
 )
 
 // retrySchedule defines wait duration before each retry attempt (index = attempt number - 1).
@@ -84,15 +85,26 @@ func (s *Sender) processQueue() {
 }
 
 func (s *Sender) deliver(d *protocol.WebhookDelivery, hook *protocol.Webhook) {
+	// TODO(ctx): propagate from event bus once delivery dispatch carries ctx.
+	ctx := context.TODO()
+	ctx, span := tracing.StartSpan(ctx, "webhook.Deliver")
+	defer span.End()
+	span.SetAttr("webhook.id", hook.ID)
+	span.SetAttr("webhook.url", hook.URL)
+	span.SetAttr("webhook.event_type", d.EventType)
+	span.SetAttr("delivery.attempt", d.Attempts+1)
+
 	// SSRF defense-in-depth: validate URL before delivery
 	if err := validateDeliveryURL(hook.URL); err != nil {
+		span.SetError(err)
 		log.Printf("[webhook] delivery %s blocked: %v", d.ID, err)
 		s.markDead(d)
 		return
 	}
 
-	req, err := http.NewRequest("POST", hook.URL, bytes.NewReader([]byte(d.Payload)))
+	req, err := http.NewRequestWithContext(ctx, "POST", hook.URL, bytes.NewReader([]byte(d.Payload)))
 	if err != nil {
+		span.SetError(err)
 		s.markFailed(d)
 		return
 	}
@@ -115,12 +127,17 @@ func (s *Sender) deliver(d *protocol.WebhookDelivery, hook *protocol.Webhook) {
 			statusCode = resp.StatusCode
 			resp.Body.Close()
 		}
+		span.SetAttr("http.status_code", statusCode)
+		if err != nil {
+			span.SetError(err)
+		}
 		log.Printf("[webhook] delivery %s failed (attempt %d): status=%d err=%v",
 			d.ID, d.Attempts+1, statusCode, err)
 		monitor.MetricWebhookDeliveriesTotal.WithLabelValues("failed").Inc()
 		s.markFailed(d)
 		return
 	}
+	span.SetAttr("http.status_code", resp.StatusCode)
 	resp.Body.Close()
 
 	monitor.MetricWebhookDeliveriesTotal.WithLabelValues("delivered").Inc()

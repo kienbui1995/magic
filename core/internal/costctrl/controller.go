@@ -9,6 +9,7 @@ import (
 	"github.com/kienbui1995/magic/core/internal/events"
 	"github.com/kienbui1995/magic/core/internal/protocol"
 	"github.com/kienbui1995/magic/core/internal/store"
+	"github.com/kienbui1995/magic/core/internal/tracing"
 )
 
 // Decision represents the outcome of a cost policy check.
@@ -102,14 +103,25 @@ func (c *Controller) RegisterPolicy(p CostPolicy) {
 const maxCostRecords = 50_000
 
 func (c *Controller) RecordCost(workerID, taskID string, cost float64) {
+	// TODO(ctx): propagate from caller once all call sites pass ctx.
+	c.RecordCostCtx(context.TODO(), workerID, taskID, cost)
+}
+
+// RecordCostCtx is the context-aware variant of RecordCost. Accepts a ctx so
+// the cost-tracking span attaches to the caller's trace (dispatch → record).
+func (c *Controller) RecordCostCtx(ctx context.Context, workerID, taskID string, cost float64) {
+	ctx, span := tracing.StartSpan(ctx, "costctrl.RecordCost")
+	defer span.End()
+	span.SetAttr("worker.id", workerID)
+	span.SetAttr("task.id", taskID)
+	span.SetAttr("cost.usd", cost)
+
 	c.mu.Lock()
 	c.records = append(c.records, CostRecord{WorkerID: workerID, TaskID: taskID, Cost: cost})
 	if len(c.records) > maxCostRecords {
 		c.records = c.records[len(c.records)-maxCostRecords:]
 	}
 	// Atomic read-modify-write under lock to prevent lost updates
-	// TODO(ctx): propagate from caller once costctrl API takes ctx.
-	ctx := context.TODO()
 	var orgID string
 	w, err := c.store.GetWorker(ctx, workerID)
 	if err == nil {
@@ -119,9 +131,12 @@ func (c *Controller) RecordCost(workerID, taskID string, cost float64) {
 	}
 	// Apply policies while still holding lock to prevent concurrent budget checks
 	if err == nil {
-		c.applyPolicies(w, cost)
+		c.applyPolicies(ctx, w, cost)
 	}
 	c.mu.Unlock()
+	if orgID != "" {
+		span.SetAttr("org.id", orgID)
+	}
 
 	c.bus.Publish(events.Event{
 		Type: "cost.recorded", Source: "costctrl",
@@ -134,18 +149,25 @@ func (c *Controller) RecordCost(workerID, taskID string, cost float64) {
 	})
 }
 
-func (c *Controller) applyPolicies(w *protocol.Worker, cost float64) {
+func (c *Controller) applyPolicies(ctx context.Context, w *protocol.Worker, cost float64) {
+	_, span := tracing.StartSpan(ctx, "costctrl.applyPolicies")
+	defer span.End()
+	span.SetAttr("worker.id", w.ID)
+	span.SetAttr("policy.count", len(c.policies))
+
 	for _, p := range c.policies {
 		switch p.Check(w, cost) {
 		case Reject:
+			span.SetAttr("policy.result", "reject")
+			span.SetAttr("policy.name", p.Name())
 			w.Status = protocol.StatusPaused
-			// TODO(ctx): propagate from caller once costctrl API takes ctx.
-			c.store.UpdateWorker(context.TODO(), w) //nolint:errcheck
+			c.store.UpdateWorker(ctx, w) //nolint:errcheck
 			c.bus.Publish(events.Event{Type: "budget.exceeded", Source: "costctrl", Severity: "error",
 				Payload: map[string]any{"worker_id": w.ID, "org_id": w.OrgID, "policy": p.Name(),
 					"spent": w.TotalCostToday, "budget": w.Limits.MaxCostPerDay}})
 			return // stop on first reject
 		case Warn:
+			span.SetAttr("policy.result", "warn")
 			c.bus.Publish(events.Event{Type: "budget.threshold", Source: "costctrl", Severity: "warn",
 				Payload: map[string]any{"worker_id": w.ID, "policy": p.Name(),
 					"percent": fmt.Sprintf("%.0f%%", w.TotalCostToday/w.Limits.MaxCostPerDay*100),
