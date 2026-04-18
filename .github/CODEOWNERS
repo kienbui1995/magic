@@ -1,0 +1,33 @@
+# MagiC CODEOWNERS
+#
+# This file defines who is automatically requested for review when a pull
+# request modifies files in a given path. The last matching pattern wins.
+#
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-security/customizing-your-repository/about-code-owners
+#
+# Maintainer directory: /MAINTAINERS.md
+# Governance:           /GOVERNANCE.md
+
+# Default — everything not otherwise matched.
+*                       @kienbui1995
+
+# Core server (Go)
+/core/                  @kienbui1995
+
+# SDKs
+/sdk/python/            @kienbui1995
+/sdk/go/                @kienbui1995
+/sdk/typescript/        @kienbui1995
+
+# Documentation
+/docs/                  @kienbui1995
+/docs-site/             @kienbui1995
+
+# Deployment manifests (Helm, Compose, Railway, Render, Fly)
+/deploy/                @kienbui1995
+
+# GitHub automation (workflows, issue templates, CODEOWNERS itself)
+/.github/               @kienbui1995
+
+# Examples
+/examples/              @kienbui1995

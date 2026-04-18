@@ -1,0 +1,77 @@
+MagiC Framework
+Copyright 2025-2026 Kien Bui and MagiC contributors
+
+This product is licensed under the Apache License, Version 2.0.
+See the LICENSE file for the full license text, or visit:
+    http://www.apache.org/licenses/LICENSE-2.0
+
+--------------------------------------------------------------------------
+Third-Party Software
+--------------------------------------------------------------------------
+
+This product includes software developed by the following third parties.
+Each dependency remains subject to its original license; the terms of
+those licenses are preserved in the source distributions of the
+respective libraries.
+
+Go dependencies (see core/go.mod for the authoritative list):
+
+  github.com/golang-migrate/migrate                     MIT License
+    Database migration tool.
+    https://github.com/golang-migrate/migrate
+
+  github.com/jackc/pgx                                  MIT License
+    PostgreSQL driver and toolkit for Go.
+    https://github.com/jackc/pgx
+
+  github.com/prometheus/client_golang                   Apache License 2.0
+    Prometheus instrumentation library.
+    https://github.com/prometheus/client_golang
+
+  github.com/google/uuid                                BSD-3-Clause
+    UUID generation.
+    https://github.com/google/uuid
+
+  modernc.org/sqlite                                    BSD-3-Clause
+    Pure-Go SQLite driver.
+    https://gitlab.com/cznic/sqlite
+
+  github.com/lib/pq                                     MIT License
+    PostgreSQL driver (legacy).
+    https://github.com/lib/pq
+
+  golang.org/x/time, golang.org/x/sync,
+  golang.org/x/exp, golang.org/x/sys, golang.org/x/text  BSD-3-Clause
+    Go supplementary packages.
+    https://pkg.go.dev/golang.org/x
+
+  go.yaml.in/yaml (yaml.v2)                             Apache License 2.0 / MIT
+    YAML parser.
+    https://gopkg.in/yaml.v2
+
+  google.golang.org/protobuf                            BSD-3-Clause
+    Protocol buffers runtime.
+    https://pkg.go.dev/google.golang.org/protobuf
+
+Python SDK dependencies (see sdk/python/pyproject.toml):
+
+  httpx                                                 BSD-3-Clause
+    Async HTTP client.
+    https://www.python-httpx.org/
+
+  pydantic                                              MIT License
+    Data validation and settings management.
+    https://docs.pydantic.dev/
+
+TypeScript SDK: zero runtime dependencies.
+
+--------------------------------------------------------------------------
+
+Full license texts for dependencies are available in their respective
+upstream repositories. For a machine-readable SBOM, run:
+
+  cd core && go mod download -json
+  cd sdk/python && pip install -e . && pip freeze
+
+This NOTICE file is informational and does not grant any additional rights
+beyond those in the Apache License 2.0.
