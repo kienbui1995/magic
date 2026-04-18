@@ -12,6 +12,41 @@ import (
 	"github.com/kienbui1995/magic/core/internal/store"
 )
 
+// apiVersionMiddleware sets the X-API-Version response header on every response
+// and validates the client-supplied X-API-Version header if present.
+//
+// Compatibility rules:
+//   - If client omits X-API-Version → allow (legacy clients).
+//   - If client MAJOR matches server MAJOR → allow.
+//   - If client MAJOR differs from server MAJOR → 400 with machine-readable body.
+//
+// Clients can read the server version from the X-API-Version response header.
+func apiVersionMiddleware(next http.Handler) http.Handler {
+	serverMajor := majorVersion(protocol.ProtocolVersion)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set(protocol.APIVersionHeader, protocol.ProtocolVersion)
+		if requested := r.Header.Get(protocol.APIVersionHeader); requested != "" {
+			if majorVersion(requested) != serverMajor {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":"incompatible api version","server_version":"` +
+					protocol.ProtocolVersion + `","client_version":"` + requested + `"}`))
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// majorVersion extracts the MAJOR component from a semver-like string.
+// "1.0" → "1", "2.3" → "2", "abc" → "abc" (treated as-is).
+func majorVersion(v string) string {
+	if i := strings.Index(v, "."); i >= 0 {
+		return v[:i]
+	}
+	return v
+}
+
 // contextKey is the type for context keys in this package.
 type contextKey string
 

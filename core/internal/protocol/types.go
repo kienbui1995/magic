@@ -23,7 +23,18 @@ const (
 	TaskInProgress = "in_progress"
 	TaskCompleted  = "completed"
 	TaskFailed     = "failed"
+	TaskCancelled  = "cancelled"
 )
+
+// IsTaskTerminal reports whether the given task status is a terminal state
+// (no further transitions are expected).
+func IsTaskTerminal(status string) bool {
+	switch status {
+	case TaskCompleted, TaskFailed, TaskCancelled:
+		return true
+	}
+	return false
+}
 
 // Task priorities
 const (

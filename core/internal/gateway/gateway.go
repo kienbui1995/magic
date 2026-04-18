@@ -110,6 +110,8 @@ func (g *Gateway) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/workers", g.handleListWorkers)
 	mux.HandleFunc("GET /api/v1/workers/{id}", g.handleGetWorker)
 	mux.Handle("DELETE /api/v1/workers/{id}", workerAuth(http.HandlerFunc(g.handleDeregisterWorker)))
+	mux.Handle("POST /api/v1/workers/{id}/pause", workerAuth(http.HandlerFunc(g.handlePauseWorker)))
+	mux.Handle("POST /api/v1/workers/{id}/resume", workerAuth(http.HandlerFunc(g.handleResumeWorker)))
 
 	// Tasks
 	mux.Handle("POST /api/v1/tasks", orgTaskRL(taskRL(http.HandlerFunc(g.handleSubmitTask))))
@@ -117,6 +119,7 @@ func (g *Gateway) Handler() http.Handler {
 	// Streaming tasks (must be before /tasks/{id} to avoid ambiguity)
 	mux.Handle("POST /api/v1/tasks/stream", orgTaskRL(taskRL(http.HandlerFunc(g.handleStreamTask))))
 	mux.HandleFunc("GET /api/v1/tasks/{id}/stream", g.handleResubscribeStream)
+	mux.HandleFunc("POST /api/v1/tasks/{id}/cancel", g.handleCancelTask)
 	mux.HandleFunc("GET /api/v1/tasks/{id}", g.handleGetTask)
 
 	// Workflows
@@ -192,6 +195,7 @@ func (g *Gateway) Handler() http.Handler {
 	handler = requestIDMiddleware(handler)
 	handler = bodySizeMiddleware(handler)
 	handler = authMiddleware(handler)
+	handler = apiVersionMiddleware(handler)
 	handler = securityHeadersMiddleware(handler)
 	handler = corsMiddleware(handler)
 

@@ -192,3 +192,38 @@ func (r *Registry) ListWorkers() []*protocol.Worker {
 func (r *Registry) FindByCapability(capability string) []*protocol.Worker {
 	return r.store.FindWorkersByCapability(capability)
 }
+
+// PauseWorker marks a worker as paused. The router will skip paused workers
+// when selecting targets for new tasks. Heartbeats from the worker will not
+// override the paused state.
+func (r *Registry) PauseWorker(id string) error {
+	return r.setWorkerStatus(id, protocol.StatusPaused, "worker.paused")
+}
+
+// ResumeWorker transitions a paused worker back to active.
+func (r *Registry) ResumeWorker(id string) error {
+	return r.setWorkerStatus(id, protocol.StatusActive, "worker.resumed")
+}
+
+func (r *Registry) setWorkerStatus(id, status, eventType string) error {
+	w, err := r.store.GetWorker(id)
+	if err != nil {
+		return err
+	}
+	if w.Status == status {
+		return nil // idempotent: already in the target state
+	}
+	w.Status = status
+	if err := r.store.UpdateWorker(w); err != nil {
+		return err
+	}
+	r.bus.Publish(events.Event{
+		Type:   eventType,
+		Source: "registry",
+		Payload: map[string]any{
+			"worker_id": id,
+			"status":    status,
+		},
+	})
+	return nil
+}

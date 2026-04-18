@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kienbui1995/magic/core/internal/events"
 	"github.com/kienbui1995/magic/core/internal/monitor"
 	"github.com/kienbui1995/magic/core/internal/protocol"
 	"github.com/kienbui1995/magic/core/internal/store"
@@ -90,9 +91,9 @@ func paginate[T any](items []T, limit, offset int) []T {
 
 func (g *Gateway) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":  "ok",
-		"version": "0.1.0",
-		"time":    time.Now().Format(time.RFC3339),
+		"status":           "ok",
+		"protocol_version": protocol.ProtocolVersion,
+		"time":             time.Now().Format(time.RFC3339),
 	})
 }
 
@@ -100,6 +101,15 @@ func (g *Gateway) handleRegisterWorker(w http.ResponseWriter, r *http.Request) {
 	var payload protocol.RegisterPayload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if errs := validateRequest(
+		required("name", payload.Name),
+		maxLen("name", payload.Name, 255),
+		required("endpoint.url", payload.Endpoint.URL),
+	); len(errs) > 0 {
+		writeValidationError(w, errs)
 		return
 	}
 
@@ -178,6 +188,17 @@ func (g *Gateway) handleSubmitTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if errs := validateRequest(
+		required("type", task.Type),
+		maxLen("type", task.Type, 255),
+		oneOf("priority", task.Priority,
+			protocol.PriorityLow, protocol.PriorityNormal,
+			protocol.PriorityHigh, protocol.PriorityCritical),
+	); len(errs) > 0 {
+		writeValidationError(w, errs)
+		return
+	}
+
 	task.ID = protocol.GenerateID("task")
 	task.Status = protocol.TaskPending
 	task.CreatedAt = time.Now()
@@ -244,6 +265,75 @@ func (g *Gateway) handleGetTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, task)
+}
+
+// handleCancelTask marks a task as cancelled if it is not already in a terminal state.
+// Returns 404 if the task does not exist, 409 if already terminal.
+//
+// Note: if the task is currently being dispatched, the worker will not be
+// actively stopped — the dispatcher will complete its HTTP roundtrip, but the
+// final UpdateTask call from the dispatcher may overwrite the cancelled status
+// if it races. Hard cancellation of in-flight work requires worker cooperation
+// and is out of scope for this endpoint.
+func (g *Gateway) handleCancelTask(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	task, err := g.deps.Store.GetTask(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if protocol.IsTaskTerminal(task.Status) {
+		writeError(w, http.StatusConflict, "task already in terminal state: "+task.Status)
+		return
+	}
+	task.Status = protocol.TaskCancelled
+	now := time.Now()
+	task.CompletedAt = &now
+	if task.Error == nil {
+		task.Error = &protocol.TaskError{Code: "cancelled", Message: "cancelled by user"}
+	}
+	if err := g.deps.Store.UpdateTask(task); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to cancel task")
+		return
+	}
+	g.deps.Bus.Publish(events.Event{
+		Type:   "task.cancelled",
+		Source: "gateway",
+		Payload: map[string]any{
+			"task_id":   task.ID,
+			"worker_id": task.AssignedWorker,
+		},
+	})
+	writeJSON(w, http.StatusOK, task)
+}
+
+// handlePauseWorker transitions a worker to the paused state. Paused workers
+// are skipped by the router when selecting targets for new tasks.
+func (g *Gateway) handlePauseWorker(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if token := TokenFromContext(r.Context()); token != nil && token.WorkerID != id {
+		writeError(w, http.StatusForbidden, "token not authorized for this worker")
+		return
+	}
+	if err := g.deps.Registry.PauseWorker(id); err != nil {
+		writeError(w, http.StatusNotFound, "worker not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": protocol.StatusPaused})
+}
+
+// handleResumeWorker transitions a paused worker back to active.
+func (g *Gateway) handleResumeWorker(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if token := TokenFromContext(r.Context()); token != nil && token.WorkerID != id {
+		writeError(w, http.StatusForbidden, "token not authorized for this worker")
+		return
+	}
+	if err := g.deps.Registry.ResumeWorker(id); err != nil {
+		writeError(w, http.StatusNotFound, "worker not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": protocol.StatusActive})
 }
 
 func (g *Gateway) handleGetStats(w http.ResponseWriter, r *http.Request) {
@@ -321,6 +411,15 @@ func (g *Gateway) handleCreateTeam(w http.ResponseWriter, r *http.Request) {
 	var req CreateTeamRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if errs := validateRequest(
+		required("name", req.Name),
+		maxLen("name", req.Name, 255),
+		required("org_id", req.OrgID),
+	); len(errs) > 0 {
+		writeValidationError(w, errs)
 		return
 	}
 
@@ -711,8 +810,11 @@ func (g *Gateway) handleCreateWebhook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.URL == "" || len(req.Events) == 0 {
-		writeError(w, http.StatusBadRequest, "url and events are required")
+	if errs := validateRequest(
+		required("url", req.URL),
+		nonEmptySlice("events", req.Events),
+	); len(errs) > 0 {
+		writeValidationError(w, errs)
 		return
 	}
 	if err := validateWebhookURL(req.URL); err != nil {
