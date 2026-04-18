@@ -6,6 +6,57 @@ Performance benchmarks for the MagiC AI agent orchestration framework.
 > overhead only: worker registration, task routing, event dispatch. The numbers
 > represent what MagiC adds on top of your existing agents.
 
+## Scope
+
+The suite targets the dimensions that matter for enterprise comparison against
+Temporal / Dapr Workflows / Ray Serve:
+
+| Dimension | What we measure | Where |
+|-----------|-----------------|-------|
+| **Throughput** | Tasks completed per second, 1/10/100 workers | `scenarios/throughput.md` |
+| **Latency** | p50/p95/p99 dispatch latency under sustained load | `scenarios/latency.md` |
+| **Fan-out** | Parallel vs sequential workflow step execution | `scenarios/fanout.md` |
+| **Durability** | DLQ recovery + retry success under induced failures | `scenarios/durability.md` |
+| **Cost accuracy** | Cost accounting correctness under load | `scenarios/cost-tracking.md` |
+| **Scalability** | Route time at 1 → 1000 registered workers | `core/benchmarks/routing_test.go` |
+
+## Hardware Recipe (reproducibility)
+
+Results published in `results/` must be produced on — or clearly labelled
+deviations from — this baseline rig:
+
+- CPU: 4 physical cores, x86_64
+- RAM: 8 GB
+- Disk: local NVMe SSD
+- OS: Linux kernel 6.x, cgroups v2
+- Go: **1.25**
+- Postgres: **16** (with `pgvector`), local socket
+- Network: loopback only (no cross-host NIC)
+- MagiC version: tagged release (see file name `results/vX.Y.Z-*.md`)
+
+Run each scenario **three times** and publish the median. Note any deviation
+(CPU model, cloud instance) in the result header.
+
+## Output Format
+
+Load-test scenarios emit two artefacts:
+
+1. **CSV** — one row per task: `timestamp,task_id,submit_ms,complete_ms,status`
+2. **Markdown summary** — aggregates in `results/vX.Y.Z-<scenario>.md`
+   including methodology, p50/p95/p99, throughput, success rate, observations.
+
+## Versioning
+
+Benchmarks are pinned to the MagiC release they ran against. File naming:
+
+```
+results/v0.8.0-baseline.md
+results/v0.9.0-baseline.md
+```
+
+Never overwrite historic results; append new runs as new files so regressions
+are visible over time.
+
 ## Location
 
 Benchmark files live inside the `core` module at `../core/benchmarks/` because
