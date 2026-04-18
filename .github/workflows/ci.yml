@@ -28,7 +28,7 @@ jobs:
           working-directory: core
 
   e2e:
-    name: E2E Tests
+    name: E2E Tests (MemoryStore)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -38,7 +38,30 @@ jobs:
         with:
           go-version: '1.25'
       - name: Run E2E tests
-        run: cd core && go test -tags=e2e -race -timeout=300s ./internal/e2e/...
+        # Exclude TestE2E_Postgres_* — those run in the e2e-postgres job below
+        # which spins up real Postgres containers via testcontainers-go.
+        run: >
+          cd core && go test -tags=e2e -race -timeout=300s
+          -run '^TestE2E_(TaskLifecycle|WebhookDelivery|TaskCancel|WorkerPauseResume|WorkflowDAG|RateLimit|AuditLog)$'
+          ./internal/e2e/...
+
+  e2e-postgres:
+    name: E2E Tests (Postgres via testcontainers)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
+        with:
+          go-version: '1.25'
+      # GitHub-hosted ubuntu runners have Docker preinstalled; testcontainers-go
+      # connects via /var/run/docker.sock without extra setup.
+      - name: Run Postgres E2E tests
+        run: >
+          cd core && go test -tags=e2e -race -timeout=600s
+          -run '^TestE2E_Postgres'
+          ./internal/e2e/...
 
   go-sdk:
     name: Go SDK Tests

@@ -46,6 +46,18 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
     data JSONB NOT NULL
 );
 
+-- RBAC: policies + role_bindings. Migration 005 enables RLS on these, so they
+-- must exist first.
+CREATE TABLE IF NOT EXISTS policies (
+    id TEXT PRIMARY KEY,
+    data JSONB NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS role_bindings (
+    id TEXT PRIMARY KEY,
+    data JSONB NOT NULL
+);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_workers_org      ON workers ((data->>'org_id'));
 CREATE INDEX IF NOT EXISTS idx_tasks_org        ON tasks   ((data->>'org_id'));

@@ -45,7 +45,12 @@ go test -tags=e2e -v ./internal/e2e/...
 
 **In scope**: catching regressions across module boundaries (gateway ↔ dispatcher ↔ store ↔ bus ↔ webhook sender).
 
+## Postgres-backed E2E
+
+`postgres_test.go` (same build tag) covers migrations / RLS / pool under a
+real Postgres via testcontainers-go. See `docs/testing/e2e-postgres.md` for
+run instructions and fail modes. Tests auto-skip when Docker is unavailable.
+
 **Out of scope** (future work):
-- Postgres / pgvector-backed E2E — should use `testcontainers-go` to spin up a real Postgres and verify migrations, RLS, concurrent pool behavior.
 - OIDC / JWT auth path — needs a fake issuer.
 - OTel exporter verification — needs an in-process collector.

@@ -1,3 +1,5 @@
+DROP TABLE IF EXISTS role_bindings;
+DROP TABLE IF EXISTS policies;
 DROP TABLE IF EXISTS webhook_deliveries;
 DROP TABLE IF EXISTS webhooks;
 DROP TABLE IF EXISTS audit_log;
