@@ -1,22 +1,61 @@
 # MagiC Server Configuration
-# Environment variables override these values.
+#
+# Precedence (highest first): CLI flag > env var > this file > built-in default.
+# ${VAR} and $VAR are expanded from the process environment before parsing,
+# so you can keep secrets out of the file.
+#
+# Start with:   magic serve --config ./magic.yaml
 
+# HTTP listener port.
 port: "8080"
-# api_key: "your-32-char-api-key-here"
 
+# Log verbosity: debug | info | warn | error
+log_level: info
+
+# API key for admin endpoints. Must be >= 32 chars when set.
+# Leave empty to run in dev mode (no auth — do NOT use in production).
+api_key: "${MAGIC_API_KEY}"
+
+# Storage backend. Auto-detected from postgres_url / sqlite_path when driver is empty.
 store:
-  driver: memory  # memory, sqlite, postgres
+  driver: memory          # memory | sqlite | postgres
   # sqlite_path: magic.db
-  # postgres_url: postgres://localhost:5432/magic?sslmode=disable
+  # postgres_url: "${MAGIC_POSTGRES_URL}"
 
+# Flat-key alias for store.postgres_url (handy when using env interpolation).
+# postgres_url: "${MAGIC_POSTGRES_URL}"
+
+# Redis (reserved for future rate-limit / cache backends).
+# redis_url: "${MAGIC_REDIS_URL}"
+
+# LLM providers — MagiC routes worker LLM calls through its gateway.
 llm:
   openai:
-    api_key: ""       # or set OPENAI_API_KEY env var
-    base_url: ""      # custom endpoint (e.g., Azure OpenAI)
+    api_key: "${OPENAI_API_KEY}"
+    base_url: ""          # override for Azure OpenAI / LiteLLM proxy
   anthropic:
-    api_key: ""       # or set ANTHROPIC_API_KEY env var
+    api_key: "${ANTHROPIC_API_KEY}"
   ollama:
-    url: ""           # e.g., http://localhost:11434
+    url: ""               # e.g., http://localhost:11434
 
-cors_origin: ""       # e.g., http://localhost:3000
-trusted_proxy: false  # set true when behind nginx/cloudflare
+# OIDC / JWT authentication (optional — API key auth stays active in parallel).
+oidc:
+  issuer: ""              # e.g., https://example.okta.com
+  client_id: ""           # e.g., magic-prod
+  audience: ""            # optional aud claim
+
+# OpenTelemetry tracing (optional — disabled when endpoint is empty).
+otel:
+  endpoint: ""            # e.g., http://jaeger:4318
+  service_name: "magic"
+  sampler: "parentbased_traceidratio"
+  sampler_arg: "0.1"
+
+# Per-organisation rate limits enforced by the gateway.
+rate_limits:
+  register_per_minute: 10
+  task_per_minute: 200
+
+# CORS + reverse-proxy.
+cors_origin: ""            # e.g., https://app.example.com
+trusted_proxy: false       # set true behind nginx / Cloudflare / Traefik

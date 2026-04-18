@@ -120,6 +120,63 @@ func TestLoad_YAMLFile(t *testing.T) {
 	}
 }
 
+func TestLoad_YAMLEnvInterpolation(t *testing.T) {
+	t.Setenv("INTERP_PG_URL", "postgres://interp/db")
+	t.Setenv("INTERP_API_KEY", "k-from-env-interp")
+	f, _ := os.CreateTemp("", "magic-interp-*.yaml")
+	// Env vars in YAML should be expanded before parsing.
+	f.WriteString("port: \"7000\"\napi_key: \"${INTERP_API_KEY}\"\npostgres_url: \"${INTERP_PG_URL}\"\n")
+	f.Close()
+	defer os.Remove(f.Name())
+
+	cfg, err := Load(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.APIKey != "k-from-env-interp" {
+		t.Errorf("api key = %q", cfg.APIKey)
+	}
+	if cfg.Store.PostgresURL != "postgres://interp/db" {
+		t.Errorf("pg url (via flat alias) = %q", cfg.Store.PostgresURL)
+	}
+}
+
+func TestLoad_YAMLNewFields(t *testing.T) {
+	f, _ := os.CreateTemp("", "magic-fields-*.yaml")
+	f.WriteString(`port: "8080"
+log_level: debug
+oidc:
+  issuer: "https://example.okta.com"
+  client_id: "magic-prod"
+otel:
+  endpoint: "http://jaeger:4318"
+  sampler: "parentbased_traceidratio"
+  sampler_arg: "0.1"
+rate_limits:
+  register_per_minute: 10
+  task_per_minute: 200
+`)
+	f.Close()
+	defer os.Remove(f.Name())
+
+	cfg, err := Load(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LogLevel != "debug" {
+		t.Errorf("log_level = %q", cfg.LogLevel)
+	}
+	if cfg.OIDC.Issuer != "https://example.okta.com" || cfg.OIDC.ClientID != "magic-prod" {
+		t.Errorf("oidc = %+v", cfg.OIDC)
+	}
+	if cfg.OTel.Endpoint != "http://jaeger:4318" || cfg.OTel.SamplerArg != "0.1" {
+		t.Errorf("otel = %+v", cfg.OTel)
+	}
+	if cfg.RateLimits.RegisterPerMinute != 10 || cfg.RateLimits.TaskPerMinute != 200 {
+		t.Errorf("rate_limits = %+v", cfg.RateLimits)
+	}
+}
+
 func TestLoad_AutoDetectDriver(t *testing.T) {
 	t.Setenv("MAGIC_POSTGRES_URL", "postgres://localhost/magic")
 	cfg, _ := Load("")

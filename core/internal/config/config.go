@@ -18,12 +18,41 @@ import (
 
 // Config is the top-level server configuration.
 type Config struct {
-	Port     string    `yaml:"port"`
-	APIKey   string    `yaml:"api_key"`
-	Store    StoreConf `yaml:"store"`
-	LLM      LLMConf   `yaml:"llm"`
-	CORS     string    `yaml:"cors_origin"`
-	TrustedProxy bool  `yaml:"trusted_proxy"`
+	Port         string         `yaml:"port"`
+	LogLevel     string         `yaml:"log_level"`
+	APIKey       string         `yaml:"api_key"`
+	Store        StoreConf      `yaml:"store"`
+	LLM          LLMConf        `yaml:"llm"`
+	CORS         string         `yaml:"cors_origin"`
+	TrustedProxy bool           `yaml:"trusted_proxy"`
+	// PostgresURL is a flat-key alias for store.postgres_url that makes
+	// config files read more naturally (mirrors MAGIC_POSTGRES_URL env).
+	PostgresURL string         `yaml:"postgres_url"`
+	RedisURL    string         `yaml:"redis_url"`
+	OIDC        OIDCConf       `yaml:"oidc"`
+	OTel        OTelConf       `yaml:"otel"`
+	RateLimits  RateLimitsConf `yaml:"rate_limits"`
+}
+
+// OIDCConf mirrors the MAGIC_OIDC_* env vars consumed in main.go.
+type OIDCConf struct {
+	Issuer   string `yaml:"issuer"`
+	ClientID string `yaml:"client_id"`
+	Audience string `yaml:"audience"`
+}
+
+// OTelConf mirrors OTEL_* env vars for tracing.
+type OTelConf struct {
+	Endpoint    string `yaml:"endpoint"`
+	ServiceName string `yaml:"service_name"`
+	Sampler     string `yaml:"sampler"`
+	SamplerArg  string `yaml:"sampler_arg"`
+}
+
+// RateLimitsConf mirrors gateway rate-limit knobs.
+type RateLimitsConf struct {
+	RegisterPerMinute int `yaml:"register_per_minute"`
+	TaskPerMinute     int `yaml:"task_per_minute"`
 }
 
 // StoreConf configures the storage backend.
@@ -88,17 +117,30 @@ func LoadWithSecrets(ctx context.Context, path string, sp secrets.Provider) (*Co
 		if err != nil {
 			return nil, err
 		}
-		if err := yaml.Unmarshal(data, cfg); err != nil {
+		// Expand ${VAR} / $VAR references against the process environment
+		// before YAML parsing, so operators can reference secrets via env
+		// without hardcoding them in the file.
+		expanded := os.ExpandEnv(string(data))
+		if err := yaml.Unmarshal([]byte(expanded), cfg); err != nil {
 			return nil, err
 		}
 	}
 
 	// Non-secret env overrides (port, proxy trust, base URLs, CORS).
 	envOverride(&cfg.Port, "MAGIC_PORT")
+	envOverride(&cfg.LogLevel, "MAGIC_LOG_LEVEL")
 	envOverride(&cfg.Store.SQLitePath, "MAGIC_STORE")
 	envOverride(&cfg.LLM.OpenAI.BaseURL, "OPENAI_BASE_URL")
 	envOverride(&cfg.LLM.Ollama.URL, "OLLAMA_URL")
 	envOverride(&cfg.CORS, "MAGIC_CORS_ORIGIN")
+	envOverride(&cfg.RedisURL, "MAGIC_REDIS_URL")
+	envOverride(&cfg.OIDC.Issuer, "MAGIC_OIDC_ISSUER")
+	envOverride(&cfg.OIDC.ClientID, "MAGIC_OIDC_CLIENT_ID")
+	envOverride(&cfg.OIDC.Audience, "MAGIC_OIDC_AUDIENCE")
+	envOverride(&cfg.OTel.Endpoint, "OTEL_EXPORTER_OTLP_ENDPOINT")
+	envOverride(&cfg.OTel.ServiceName, "OTEL_SERVICE_NAME")
+	envOverride(&cfg.OTel.Sampler, "OTEL_TRACES_SAMPLER")
+	envOverride(&cfg.OTel.SamplerArg, "OTEL_TRACES_SAMPLER_ARG")
 	if os.Getenv("MAGIC_TRUSTED_PROXY") == "true" {
 		cfg.TrustedProxy = true
 	}
@@ -112,6 +154,10 @@ func LoadWithSecrets(ctx context.Context, path string, sp secrets.Provider) (*Co
 	}
 	if err := secretOverride(ctx, sp, &cfg.Store.PostgresURL, "MAGIC_POSTGRES_URL"); err != nil {
 		return nil, err
+	}
+	// Accept flat `postgres_url:` key as a fallback for the nested form.
+	if cfg.Store.PostgresURL == "" && cfg.PostgresURL != "" {
+		cfg.Store.PostgresURL = cfg.PostgresURL
 	}
 	if err := secretOverride(ctx, sp, &cfg.LLM.OpenAI.APIKey, "OPENAI_API_KEY"); err != nil {
 		return nil, err

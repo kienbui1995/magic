@@ -17,8 +17,16 @@ jobs:
           go-version: '1.25'
       - name: Build
         run: cd core && go build ./cmd/magic
-      - name: Test with Race Detection
-        run: cd core && go test ./... -v -race -count=1
+      - name: Test with Race Detection + Coverage
+        run: cd core && go test ./... -v -race -count=1 -coverprofile=coverage.txt -covermode=atomic
+      - name: Upload coverage to Codecov
+        # Pinned to v5.1.1 — tokenless upload supported for public repos.
+        # fail_ci_if_error:false so Codecov flakes never block PR merges.
+        uses: codecov/codecov-action@1e68e06f1dbfde0e4cefc87efeba9e4643565303  # v5.1.1
+        with:
+          files: ./core/coverage.txt
+          flags: go-core
+          fail_ci_if_error: false
       - name: Vet
         run: cd core && go vet ./...
       - name: golangci-lint
