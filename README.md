@@ -5,6 +5,8 @@
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python)](https://python.org)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/kienbui1995/magic/badge)](https://scorecard.dev/viewer/?uri=github.com/kienbui1995/magic)
+[![SLSA Level 3](https://slsa.dev/images/gh-badge-level3.svg)](https://slsa.dev)
+[![Signed with Sigstore](https://img.shields.io/badge/signed-sigstore-green?logo=sigstore)](docs/security/signing-and-provenance.md)
 [![govulncheck](https://github.com/kienbui1995/magic/actions/workflows/ci.yml/badge.svg)](https://github.com/kienbui1995/magic/actions/workflows/ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/kienbui1995/magic/core)](https://goreportcard.com/report/github.com/kienbui1995/magic/core)
 
