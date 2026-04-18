@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"sync"
@@ -15,13 +16,26 @@ func rateLimitingEnabled() bool {
 	return os.Getenv("MAGIC_RATE_LIMIT_DISABLE") != "true"
 }
 
+// Limiter checks whether a request identified by key is allowed.
+// Implementations must be safe for concurrent use.
+//
+// Two implementations ship with MagiC:
+//   - MemoryLimiter (default): per-process token buckets; fast but each
+//     gateway replica counts independently.
+//   - RedisLimiter: shared-state token buckets backed by Redis; required
+//     for correct per-user limits in multi-instance deployments.
+type Limiter interface {
+	Allow(ctx context.Context, key string) bool
+}
+
 // maxLimiters caps the number of tracked IPs to prevent memory exhaustion
 // under DDoS with unique spoofed IPs. Entries for active IPs are preserved;
 // the oldest entry is evicted when the cap is hit.
 const maxLimiters = 10_000
 
-// limiterStore holds per-key token-bucket limiters with LRU-like cleanup.
-type limiterStore struct {
+// memoryLimiter holds per-key token-bucket limiters with LRU-like cleanup.
+// Implements the Limiter interface using golang.org/x/time/rate in-process.
+type memoryLimiter struct {
 	mu       sync.Mutex
 	limiters map[string]*entry
 	r        rate.Limit // tokens per second
@@ -34,8 +48,14 @@ type entry struct {
 	lastSeen time.Time
 }
 
-func newLimiterStore(r rate.Limit, b int) *limiterStore {
-	ls := &limiterStore{
+// NewMemoryLimiter returns an in-process token-bucket limiter.
+// It is the default implementation when MAGIC_REDIS_URL is unset.
+func NewMemoryLimiter(r rate.Limit, b int) Limiter {
+	return newLimiterStore(r, b)
+}
+
+func newLimiterStore(r rate.Limit, b int) *memoryLimiter {
+	ls := &memoryLimiter{
 		limiters: make(map[string]*entry),
 		r:        r,
 		b:        b,
@@ -45,7 +65,7 @@ func newLimiterStore(r rate.Limit, b int) *limiterStore {
 	return ls
 }
 
-func (ls *limiterStore) get(key string) *rate.Limiter {
+func (ls *memoryLimiter) get(key string) *rate.Limiter {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
 	e, ok := ls.limiters[key]
@@ -69,8 +89,13 @@ func (ls *limiterStore) get(key string) *rate.Limiter {
 	return e.limiter
 }
 
+// Allow implements Limiter.
+func (ls *memoryLimiter) Allow(_ context.Context, key string) bool {
+	return ls.get(key).Allow()
+}
+
 // cleanup removes entries not seen in the last 5 minutes.
-func (ls *limiterStore) cleanup() {
+func (ls *memoryLimiter) cleanup() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 	for {
@@ -90,7 +115,7 @@ func (ls *limiterStore) cleanup() {
 	}
 }
 
-func (ls *limiterStore) stop() {
+func (ls *memoryLimiter) stop() {
 	close(ls.stopCh)
 }
 
@@ -123,10 +148,10 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
-// rateLimitMiddleware returns a middleware that limits requests using the given store.
+// rateLimitMiddleware returns a middleware that limits requests using the given Limiter.
 // The key function extracts the rate-limit key from the request (e.g. IP, worker ID).
 // On limit exceeded, writes 429 Too Many Requests.
-func rateLimitMiddleware(ls *limiterStore, keyFn func(*http.Request) string) func(http.Handler) http.Handler {
+func rateLimitMiddleware(l Limiter, keyFn func(*http.Request) string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !rateLimitingEnabled() {
@@ -134,7 +159,7 @@ func rateLimitMiddleware(ls *limiterStore, keyFn func(*http.Request) string) fun
 				return
 			}
 			key := keyFn(r)
-			if !ls.get(key).Allow() {
+			if !l.Allow(r.Context(), key) {
 				monitor.MetricRateLimitHitsTotal.WithLabelValues(r.URL.Path).Inc()
 				writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 				return

@@ -2,11 +2,14 @@ package gateway
 
 import (
 	"context"
+	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/time/rate"
 
 	"github.com/kienbui1995/magic/core/internal/costctrl"
@@ -64,19 +67,24 @@ func New(deps Deps) *Gateway {
 func (g *Gateway) Handler() http.Handler {
 	mux := http.NewServeMux()
 
-	// Rate limiters (token-bucket, per endpoint group)
+	// Rate limiters (token-bucket, per endpoint group).
+	//
+	// Backend selection (per-process, not per-limiter):
+	//   MAGIC_REDIS_URL set → Redis-backed distributed limiters (shared across replicas)
+	//   unset              → in-memory limiters (per-replica; fine for single-instance)
+	mk := newLimiterFactory()
 	// Register: 10 req/IP/min → ~1 token per 6s, burst 5
-	registerLimiter := newLimiterStore(rate.Every(6*time.Second), 5)
+	registerLimiter := mk("register", rate.Every(6*time.Second), 5)
 	// Heartbeat: 4 req/IP/min → ~1 token per 15s, burst 4
-	heartbeatLimiter := newLimiterStore(rate.Every(15*time.Second), 4)
+	heartbeatLimiter := mk("heartbeat", rate.Every(15*time.Second), 4)
 	// Token management: 20 req/org/min → ~1 token per 3s, burst 10
-	tokenLimiter := newLimiterStore(rate.Every(3*time.Second), 10)
+	tokenLimiter := mk("token", rate.Every(3*time.Second), 10)
 	// Task submit: 200 req/IP/min → ~1 token per 300ms, burst 20
-	taskLimiter := newLimiterStore(rate.Every(300*time.Millisecond), 20)
+	taskLimiter := mk("task", rate.Every(300*time.Millisecond), 20)
 	// Task submit per org: 200 req/org/min via X-Org-ID header
-	orgTaskLimiter := newLimiterStore(rate.Every(300*time.Millisecond), 20)
+	orgTaskLimiter := mk("orgtask", rate.Every(300*time.Millisecond), 20)
 	// LLM chat: 30 req/IP/min → ~1 token per 2s, burst 5 (costs real money)
-	llmLimiter := newLimiterStore(rate.Every(2*time.Second), 5)
+	llmLimiter := mk("llm", rate.Every(2*time.Second), 5)
 
 	registerRL := rateLimitMiddleware(registerLimiter, clientIP)
 	heartbeatRL := rateLimitMiddleware(heartbeatLimiter, clientIP)
@@ -200,4 +208,38 @@ func (g *Gateway) Handler() http.Handler {
 	handler = corsMiddleware(handler)
 
 	return handler
+}
+
+// newLimiterFactory returns a constructor that builds Limiters using either
+// Redis (if MAGIC_REDIS_URL is set and reachable) or in-memory token buckets.
+// The choice is logged once at startup; subsequent calls reuse the same client.
+func newLimiterFactory() func(name string, r rate.Limit, burst int) Limiter {
+	url := os.Getenv("MAGIC_REDIS_URL")
+	if url == "" {
+		log.Printf("rate limiter: in-memory (set MAGIC_REDIS_URL for distributed limiting)")
+		return func(_ string, r rate.Limit, burst int) Limiter {
+			return NewMemoryLimiter(r, burst)
+		}
+	}
+	opts, err := redis.ParseURL(url)
+	if err != nil {
+		log.Printf("rate limiter: invalid MAGIC_REDIS_URL (%v), falling back to in-memory", err)
+		return func(_ string, r rate.Limit, burst int) Limiter {
+			return NewMemoryLimiter(r, burst)
+		}
+	}
+	client := redis.NewClient(opts)
+	// Ping to surface misconfiguration at startup. We still proceed even on
+	// failure — the redisLimiter itself fails open on errors.
+	pingCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := client.Ping(pingCtx).Err(); err != nil {
+		log.Printf("rate limiter: redis ping failed (%v); will retry per-request (fail-open on errors)", err)
+	}
+	// Hide credentials in log output.
+	safeURL := opts.Addr
+	log.Printf("rate limiter: redis (addr=%s)", safeURL)
+	return func(name string, r rate.Limit, burst int) Limiter {
+		return NewRedisLimiter(client, name, r, burst, 10*time.Minute)
+	}
 }
