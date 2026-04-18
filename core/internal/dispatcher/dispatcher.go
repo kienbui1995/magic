@@ -260,13 +260,16 @@ func (d *Dispatcher) handleComplete(ctx context.Context, task *protocol.Task, wo
 	}
 	d.store.UpdateWorker(ctx, worker) //nolint:errcheck
 
+	durationMs := float64(now.Sub(task.CreatedAt).Milliseconds())
 	d.bus.Publish(events.Event{
 		Type:   "task.completed",
 		Source: "dispatcher",
 		Payload: map[string]any{
-			"task_id":   task.ID,
-			"worker_id": worker.ID,
-			"cost":      cp.Cost,
+			"task_id":     task.ID,
+			"worker_id":   worker.ID,
+			"task_type":   task.Type,
+			"cost":        cp.Cost,
+			"duration_ms": durationMs,
 		},
 	})
 
@@ -293,6 +296,7 @@ func (d *Dispatcher) handleFailure(ctx context.Context, task *protocol.Task, wor
 		Payload: map[string]any{
 			"task_id":   task.ID,
 			"worker_id": worker.ID,
+			"task_type": task.Type,
 			"reason":    reason,
 		},
 	})
@@ -442,13 +446,15 @@ func (d *Dispatcher) DispatchStream(ctx context.Context, task *protocol.Task, wo
 	task.CompletedAt = &now
 	d.store.UpdateTask(ctx, task) //nolint:errcheck
 
+	durationMs := float64(now.Sub(task.CreatedAt).Milliseconds())
 	d.bus.Publish(events.Event{
 		Type:   "task.completed",
 		Source: "dispatcher",
 		Payload: map[string]any{
-			"task_id":   task.ID,
-			"worker_id": worker.ID,
-			"task_type": task.Type,
+			"task_id":     task.ID,
+			"worker_id":   worker.ID,
+			"task_type":   task.Type,
+			"duration_ms": durationMs,
 		},
 	})
 	return nil
