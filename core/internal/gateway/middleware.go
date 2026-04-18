@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/kienbui1995/magic/core/internal/auth"
 	"github.com/kienbui1995/magic/core/internal/protocol"
 	"github.com/kienbui1995/magic/core/internal/rbac"
 	"github.com/kienbui1995/magic/core/internal/store"
@@ -143,6 +144,13 @@ func authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// If the OIDC middleware already authenticated this request
+		// (JWT bearer), bypass the API-key check.
+		if auth.IsJWTAuthed(r.Context()) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		apiKey := os.Getenv("MAGIC_API_KEY")
 		if apiKey == "" {
 			// No API key configured — allow all (dev mode)
@@ -230,15 +238,24 @@ func rbacMiddleware(enforcer *rbac.Enforcer) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Determine org and subject from context
-			token := TokenFromContext(r.Context())
+			// Determine org and subject from context. Priority:
+			//   1. JWT claims (OIDC) — org_id + sub
+			//   2. Worker token — OrgID + WorkerID
+			//   3. Path parameter (/orgs/{orgID}/...) — orgID only
 			orgID := ""
 			subject := ""
-			if token != nil {
-				orgID = token.OrgID
-				subject = token.WorkerID
+			jwtRoles := []string(nil)
+			if c := auth.ClaimsFromContext(r.Context()); c != nil {
+				orgID = c.OrgID
+				subject = c.Subject
+				jwtRoles = c.Roles
 			}
-			// Also check path for org-scoped endpoints
+			if orgID == "" {
+				if token := TokenFromContext(r.Context()); token != nil {
+					orgID = token.OrgID
+					subject = token.WorkerID
+				}
+			}
 			if pathOrg := r.PathValue("orgID"); pathOrg != "" && orgID == "" {
 				orgID = pathOrg
 			}
@@ -249,7 +266,22 @@ func rbacMiddleware(enforcer *rbac.Enforcer) func(http.Handler) http.Handler {
 			}
 
 			action := methodToAction(r.Method)
-			if !enforcer.Check(orgID, subject, action) {
+			// If the JWT carries roles, honor them directly: any role in
+			// the claim that grants the action is sufficient. Otherwise
+			// fall back to the store-backed binding check.
+			if len(jwtRoles) > 0 {
+				allowed := false
+				for _, role := range jwtRoles {
+					if rbac.HasRole(role, action) {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					writeError(w, http.StatusForbidden, "insufficient permissions")
+					return
+				}
+			} else if !enforcer.Check(orgID, subject, action) {
 				writeError(w, http.StatusForbidden, "insufficient permissions")
 				return
 			}

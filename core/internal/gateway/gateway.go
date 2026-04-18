@@ -12,6 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/time/rate"
 
+	"github.com/kienbui1995/magic/core/internal/auth"
 	"github.com/kienbui1995/magic/core/internal/costctrl"
 	"github.com/kienbui1995/magic/core/internal/dispatcher"
 	"github.com/kienbui1995/magic/core/internal/evaluator"
@@ -52,6 +53,7 @@ type Deps struct {
 	LLM          *llm.Gateway       // nil = LLM features disabled
 	Prompts      *prompt.Registry   // nil = prompt features disabled
 	Memory       *memory.Store      // nil = memory features disabled
+	OIDC         *auth.OIDCVerifier // nil = OIDC/JWT auth disabled
 }
 
 // Gateway is the HTTP entry point for the MagiC server.
@@ -203,6 +205,9 @@ func (g *Gateway) Handler() http.Handler {
 	handler = requestIDMiddleware(handler)
 	handler = bodySizeMiddleware(handler)
 	handler = authMiddleware(handler)
+	// OIDC runs before authMiddleware so that a valid JWT can bypass
+	// the API-key check (the two are alternatives, not both-required).
+	handler = auth.OIDCMiddleware(g.deps.OIDC)(handler)
 	handler = apiVersionMiddleware(handler)
 	handler = securityHeadersMiddleware(handler)
 	handler = corsMiddleware(handler)

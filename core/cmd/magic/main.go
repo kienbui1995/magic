@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/kienbui1995/magic/core/internal/audit"
+	"github.com/kienbui1995/magic/core/internal/auth"
 	"github.com/kienbui1995/magic/core/internal/config"
 	"github.com/kienbui1995/magic/core/internal/costctrl"
 	"github.com/kienbui1995/magic/core/internal/dispatcher"
@@ -285,6 +286,25 @@ func runServer() {
 
 	orch.SetShutdownContext(shutdownCtx)
 
+	// OIDC / JWT authentication (optional). When MAGIC_OIDC_ISSUER is set,
+	// the gateway additionally accepts JWT bearer tokens validated against
+	// the issuer's JWKS. Existing API-key auth keeps working in parallel.
+	var oidcVerifier *auth.OIDCVerifier
+	if issuer := os.Getenv("MAGIC_OIDC_ISSUER"); issuer != "" {
+		clientID := os.Getenv("MAGIC_OIDC_CLIENT_ID")
+		audience := os.Getenv("MAGIC_OIDC_AUDIENCE")
+		discCtx, discCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		v, err := auth.NewOIDCVerifier(discCtx, issuer, clientID, audience)
+		discCancel()
+		if err != nil {
+			log.Fatalf("[security] OIDC discovery failed: %v", err)
+		}
+		oidcVerifier = v
+		log.Printf("[security] OIDC/JWT auth: enabled (issuer=%s)", issuer)
+	} else {
+		log.Printf("[security] OIDC/JWT auth: disabled (set MAGIC_OIDC_ISSUER to enable)")
+	}
+
 	gw := gateway.New(gateway.Deps{
 		Registry:     reg,
 		Router:       rt,
@@ -305,6 +325,7 @@ func runServer() {
 		LLM:          llmGW,
 		Prompts:      prompts,
 		Memory:       agentMemory,
+		OIDC:         oidcVerifier,
 	})
 
 	if s.HasAnyWorkerTokens() {

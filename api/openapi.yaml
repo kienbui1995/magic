@@ -64,6 +64,7 @@ tags:
 
 security:
   - AdminApiKey: []
+  - OIDCBearer: []
 
 paths:
   /health:
@@ -1148,6 +1149,14 @@ components:
       type: http
       scheme: bearer
       bearerFormat: mct_
+    OIDCBearer:
+      description: |
+        OAuth2 / OIDC JWT bearer token (Okta, Azure AD / Entra, Auth0,
+        Google Workspace, Keycloak, ...). Validated against the issuer's
+        JWKS. Enabled when `MAGIC_OIDC_ISSUER` is configured on the
+        server. See docs/security/oidc.md.
+      type: openIdConnect
+      openIdConnectUrl: https://example.com/.well-known/openid-configuration
 
   schemas:
     HealthResponse:
