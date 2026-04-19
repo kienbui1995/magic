@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kienbui1995/magic/core/internal/auth"
 	"github.com/kienbui1995/magic/core/internal/events"
 	"github.com/kienbui1995/magic/core/internal/monitor"
 	"github.com/kienbui1995/magic/core/internal/protocol"
@@ -275,11 +276,29 @@ func (g *Gateway) handleGetTask(w http.ResponseWriter, r *http.Request) {
 // final UpdateTask call from the dispatcher may overwrite the cancelled status
 // if it races. Hard cancellation of in-flight work requires worker cooperation
 // and is out of scope for this endpoint.
+// callerOrgID extracts the authenticated org ID from the request context.
+// It mirrors the priority order used by rbacMiddleware and rlsScopeMiddleware:
+// OIDC claims first, then worker token.  Returns "" in dev/anonymous mode.
+func callerOrgID(r *http.Request) string {
+	if c := auth.ClaimsFromContext(r.Context()); c != nil && c.OrgID != "" {
+		return c.OrgID
+	}
+	if token := TokenFromContext(r.Context()); token != nil {
+		return token.OrgID
+	}
+	return ""
+}
+
 func (g *Gateway) handleCancelTask(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	task, err := g.deps.Store.GetTask(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	// Ownership check: verify caller belongs to the same org as the task.
+	if callerOrg := callerOrgID(r); callerOrg != "" && task.Context.OrgID != "" && callerOrg != task.Context.OrgID {
+		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
 	if protocol.IsTaskTerminal(task.Status) {
@@ -315,7 +334,7 @@ func (g *Gateway) handlePauseWorker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "token not authorized for this worker")
 		return
 	}
-	if err := g.deps.Registry.PauseWorker(id); err != nil {
+	if err := g.deps.Registry.PauseWorker(r.Context(), id); err != nil {
 		writeError(w, http.StatusNotFound, "worker not found")
 		return
 	}
@@ -329,7 +348,7 @@ func (g *Gateway) handleResumeWorker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "token not authorized for this worker")
 		return
 	}
-	if err := g.deps.Registry.ResumeWorker(id); err != nil {
+	if err := g.deps.Registry.ResumeWorker(r.Context(), id); err != nil {
 		writeError(w, http.StatusNotFound, "worker not found")
 		return
 	}
@@ -666,6 +685,9 @@ func (g *Gateway) handleQueryAudit(w http.ResponseWriter, r *http.Request) {
 			limit = v
 		}
 	}
+	if limit > 1000 {
+		limit = 1000
+	}
 	if o := q.Get("offset"); o != "" {
 		if v, err := strconv.Atoi(o); err == nil && v >= 0 {
 			offset = v
@@ -691,9 +713,10 @@ func (g *Gateway) handleQueryAudit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Get total count (no pagination)
+	// Get total count using a large limit so the count query is not capped.
+	// Limit=0 maps to the store default (100), which silently truncates totals.
 	countFilter := filter
-	countFilter.Limit = 0
+	countFilter.Limit = 10000
 	countFilter.Offset = 0
 	allEntries := g.deps.Store.QueryAudit(r.Context(), countFilter)
 	total := len(allEntries)
@@ -865,7 +888,16 @@ func (g *Gateway) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
 // handleListWebhookDeliveries returns deliveries for a webhook.
 // GET /api/v1/orgs/{orgID}/webhooks/{webhookID}/deliveries
 func (g *Gateway) handleListWebhookDeliveries(w http.ResponseWriter, r *http.Request) {
+	orgID := r.PathValue("orgID")
 	webhookID := r.PathValue("webhookID")
+
+	// Verify that webhookID belongs to orgID before listing deliveries.
+	hook, err := g.deps.Store.GetWebhook(r.Context(), webhookID)
+	if err != nil || hook.OrgID != orgID {
+		writeError(w, http.StatusNotFound, "webhook not found")
+		return
+	}
+
 	limit, offset := getPagination(r)
 	writeJSON(w, http.StatusOK, paginate(g.deps.Webhook.ListDeliveries(webhookID), limit, offset))
 }

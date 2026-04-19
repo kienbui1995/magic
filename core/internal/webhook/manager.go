@@ -76,6 +76,7 @@ func (m *Manager) onEvent(e events.Event) {
 		d := &protocol.WebhookDelivery{
 			ID:        protocol.GenerateID("wd"),
 			WebhookID: hook.ID,
+			OrgID:     hook.OrgID,
 			EventType: e.Type,
 			Payload:   payload,
 			Status:    protocol.DeliveryPending,

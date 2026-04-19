@@ -1597,7 +1597,7 @@ components:
           items:
             type: string
             description: |
-              One of: task.dispatched, task.completed, task.failed,
+              One of: task.dispatched, task.completed, task.failed, task.cancelled,
               worker.registered, worker.deregistered, worker.heartbeat,
               workflow.completed, workflow.failed, workflow.started,
               cost.recorded, budget.threshold, budget.exceeded,

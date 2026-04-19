@@ -428,6 +428,7 @@ type Webhook struct {
 type WebhookDelivery struct {
 	ID        string     `json:"id"`
 	WebhookID string     `json:"webhook_id"`
+	OrgID     string     `json:"org_id"`           // populated from parent webhook for RLS
 	EventType string     `json:"event_type"`
 	Payload   string     `json:"payload"`          // JSON-encoded event body
 	Status    string     `json:"status"`           // pending|delivered|failed|dead

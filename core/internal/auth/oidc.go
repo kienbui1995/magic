@@ -73,7 +73,9 @@ func NewOIDCVerifier(ctx context.Context, issuer, clientID, audience string) (*O
 		ClientID:        aud,
 		SkipClientIDCheck: false,
 		// 60s clock skew tolerance — spec-recommended for distributed systems.
-		Now: func() time.Time { return time.Now() },
+		// Advancing Now by 60s makes tokens appear valid 60s past their exp
+		// claim, compensating for clock skew between the IdP and this server.
+		Now: func() time.Time { return time.Now().Add(60 * time.Second) },
 	}
 	return &OIDCVerifier{
 		verifier: provider.Verifier(cfg),

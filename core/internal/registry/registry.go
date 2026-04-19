@@ -202,18 +202,16 @@ func (r *Registry) FindByCapability(capability string) []*protocol.Worker {
 // PauseWorker marks a worker as paused. The router will skip paused workers
 // when selecting targets for new tasks. Heartbeats from the worker will not
 // override the paused state.
-func (r *Registry) PauseWorker(id string) error {
-	return r.setWorkerStatus(id, protocol.StatusPaused, "worker.paused")
+func (r *Registry) PauseWorker(ctx context.Context, id string) error {
+	return r.setWorkerStatus(ctx, id, protocol.StatusPaused, "worker.paused")
 }
 
 // ResumeWorker transitions a paused worker back to active.
-func (r *Registry) ResumeWorker(id string) error {
-	return r.setWorkerStatus(id, protocol.StatusActive, "worker.resumed")
+func (r *Registry) ResumeWorker(ctx context.Context, id string) error {
+	return r.setWorkerStatus(ctx, id, protocol.StatusActive, "worker.resumed")
 }
 
-func (r *Registry) setWorkerStatus(id, status, eventType string) error {
-	// TODO(ctx): propagate from caller.
-	ctx := context.TODO()
+func (r *Registry) setWorkerStatus(ctx context.Context, id, status, eventType string) error {
 	w, err := r.store.GetWorker(ctx, id)
 	if err != nil {
 		return err
