@@ -34,6 +34,7 @@ jobs:
         with:
           version: latest
           working-directory: core
+          args: --go=1.24
 
   e2e:
     name: E2E Tests (MemoryStore)
