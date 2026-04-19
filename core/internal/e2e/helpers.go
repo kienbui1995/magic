@@ -61,7 +61,7 @@ func setupFullStack(t *testing.T) *fullStack {
 	orch := orchestrator.New(s, rt, bus, disp)
 	mgr := orgmgr.New(s, bus)
 	kb := knowledge.New(s, bus, nil)
-	wh := webhook.New(s, bus)
+	wh := webhook.New(s, bus, webhook.AllowAllURLs()) // allow loopback httptest servers in E2E
 	wh.Start() // starts event subscribers + 5s retry sender
 
 	var dispatchWG sync.WaitGroup

@@ -232,7 +232,10 @@ func TestPauseResumeWorker(t *testing.T) {
 	}
 
 	// Verify worker status is paused
-	getResp, _ := http.Get(srv.URL + "/api/v1/workers/" + id)
+	getResp, err2 := http.Get(srv.URL + "/api/v1/workers/" + id)
+	if err2 != nil {
+		t.Fatal(err2)
+	}
 	defer getResp.Body.Close()
 	var worker protocol.Worker
 	json.NewDecoder(getResp.Body).Decode(&worker) //nolint:errcheck
@@ -251,7 +254,10 @@ func TestPauseResumeWorker(t *testing.T) {
 	}
 
 	// Idempotent resume
-	resp3, _ := http.Post(srv.URL+"/api/v1/workers/"+id+"/resume", "application/json", nil)
+	resp3, err3 := http.Post(srv.URL+"/api/v1/workers/"+id+"/resume", "application/json", nil)
+	if err3 != nil {
+		t.Fatal(err3)
+	}
 	defer resp3.Body.Close()
 	if resp3.StatusCode != http.StatusOK {
 		t.Errorf("idempotent resume: got %d", resp3.StatusCode)

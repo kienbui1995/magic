@@ -28,12 +28,27 @@ type Manager struct {
 	sender *Sender
 }
 
+// Option configures a Manager's internal Sender.
+type Option func(*Sender)
+
+// AllowAllURLs disables the SSRF URL guard in the delivery Sender.
+// Only use this in tests; never in production.
+func AllowAllURLs() Option {
+	return func(s *Sender) {
+		s.validateURL = func(_ string) error { return nil }
+	}
+}
+
 // New creates a Manager. Call Start() to begin processing.
-func New(s store.Store, bus *events.Bus) *Manager {
+func New(s store.Store, bus *events.Bus, opts ...Option) *Manager {
+	sender := newSender(s)
+	for _, opt := range opts {
+		opt(sender)
+	}
 	return &Manager{
 		store:  s,
 		bus:    bus,
-		sender: newSender(s),
+		sender: sender,
 	}
 }
 
