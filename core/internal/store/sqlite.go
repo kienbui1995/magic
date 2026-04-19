@@ -168,6 +168,51 @@ func (s *SQLiteStore) UpdateTask(ctx context.Context, t *protocol.Task) error {
 	}
 	return putJSON(ctx, s.db, "tasks", t.ID, t)
 }
+
+// CancelTask atomically transitions the task to cancelled using a transaction
+// with a conditional check so that concurrent completions are not overwritten.
+func (s *SQLiteStore) CancelTask(ctx context.Context, id string) (*protocol.Task, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	var raw string
+	err = tx.QueryRowContext(ctx, "SELECT data FROM tasks WHERE id = ?", id).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var t protocol.Task
+	if err := json.Unmarshal([]byte(raw), &t); err != nil {
+		return nil, err
+	}
+	switch t.Status {
+	case protocol.TaskCompleted, protocol.TaskFailed, protocol.TaskCancelled:
+		return nil, ErrTaskTerminal
+	}
+
+	now := time.Now()
+	t.Status = protocol.TaskCancelled
+	t.CompletedAt = &now
+	if t.Error == nil {
+		t.Error = &protocol.TaskError{Code: "cancelled", Message: "cancelled by user"}
+	}
+
+	updated, err := json.Marshal(&t)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = tx.ExecContext(ctx, "UPDATE tasks SET data = ? WHERE id = ?", string(updated), id); err != nil {
+		return nil, err
+	}
+	return &t, tx.Commit()
+}
+
 func (s *SQLiteStore) ListTasks(ctx context.Context) []*protocol.Task {
 	r, _ := listJSON[protocol.Task](ctx, s.db, "tasks")
 	return r

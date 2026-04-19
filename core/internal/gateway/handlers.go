@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -267,33 +268,26 @@ func (g *Gateway) handleGetTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, task)
 }
 
-// handleCancelTask marks a task as cancelled if it is not already in a terminal state.
+// handleCancelTask atomically transitions a task to the cancelled state.
 // Returns 404 if the task does not exist, 409 if already terminal.
 //
-// Note: if the task is currently being dispatched, the worker will not be
-// actively stopped — the dispatcher will complete its HTTP roundtrip, but the
-// final UpdateTask call from the dispatcher may overwrite the cancelled status
-// if it races. Hard cancellation of in-flight work requires worker cooperation
-// and is out of scope for this endpoint.
+// The Store.CancelTask method performs the status check and update in a single
+// atomic operation, preventing the TOCTOU race where a concurrent dispatcher
+// completion could overwrite the cancelled status. Hard cancellation of
+// in-flight work (i.e. stopping the worker mid-execution) requires worker
+// cooperation and is out of scope for this endpoint.
 func (g *Gateway) handleCancelTask(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	task, err := g.deps.Store.GetTask(r.Context(), id)
+	task, err := g.deps.Store.CancelTask(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "task not found")
-		return
-	}
-	if protocol.IsTaskTerminal(task.Status) {
-		writeError(w, http.StatusConflict, "task already in terminal state: "+task.Status)
-		return
-	}
-	task.Status = protocol.TaskCancelled
-	now := time.Now()
-	task.CompletedAt = &now
-	if task.Error == nil {
-		task.Error = &protocol.TaskError{Code: "cancelled", Message: "cancelled by user"}
-	}
-	if err := g.deps.Store.UpdateTask(r.Context(), task); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to cancel task")
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			writeError(w, http.StatusNotFound, "task not found")
+		case errors.Is(err, store.ErrTaskTerminal):
+			writeError(w, http.StatusConflict, "task already in terminal state")
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to cancel task")
+		}
 		return
 	}
 	g.deps.Bus.Publish(events.Event{

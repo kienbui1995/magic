@@ -14,6 +14,10 @@ var ErrNotFound = errors.New("not found")
 // ErrTokenAlreadyBound is returned when a token is already bound to a different worker.
 var ErrTokenAlreadyBound = errors.New("token already bound to another worker")
 
+// ErrTaskTerminal is returned by CancelTask when the task is already in a
+// terminal state (completed, failed, or cancelled) and cannot be cancelled.
+var ErrTaskTerminal = errors.New("task already in terminal state")
+
 // AuditFilter defines query parameters for audit log.
 type AuditFilter struct {
 	OrgID     string
@@ -42,6 +46,11 @@ type Store interface {
 	AddTask(ctx context.Context, t *protocol.Task) error
 	GetTask(ctx context.Context, id string) (*protocol.Task, error)
 	UpdateTask(ctx context.Context, t *protocol.Task) error
+	// CancelTask atomically transitions a task to the cancelled state.
+	// It returns ErrNotFound if the task does not exist, and ErrTaskTerminal
+	// if the task is already in a terminal state (completed/failed/cancelled).
+	// The returned *protocol.Task reflects the updated state.
+	CancelTask(ctx context.Context, id string) (*protocol.Task, error)
 	ListTasks(ctx context.Context) []*protocol.Task
 
 	// Workflows

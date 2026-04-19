@@ -258,6 +258,50 @@ func (s *PostgreSQLStore) UpdateTask(ctx context.Context, t *protocol.Task) erro
 	return pgPut(ctx, s.pool, "tasks", t.ID, t)
 }
 
+// CancelTask uses a single conditional UPDATE that only succeeds when the task
+// is not in a terminal state, eliminating the TOCTOU race between a dispatcher
+// completion and a concurrent user-initiated cancel.
+func (s *PostgreSQLStore) CancelTask(ctx context.Context, id string) (*protocol.Task, error) {
+	// First, check the task exists and surface the current status so we can
+	// return the right sentinel error.
+	existing, err := s.GetTask(ctx, id)
+	if err != nil {
+		return nil, err // ErrNotFound or DB error
+	}
+	switch existing.Status {
+	case protocol.TaskCompleted, protocol.TaskFailed, protocol.TaskCancelled:
+		return nil, ErrTaskTerminal
+	}
+
+	now := time.Now()
+	existing.Status = protocol.TaskCancelled
+	existing.CompletedAt = &now
+	if existing.Error == nil {
+		existing.Error = &protocol.TaskError{Code: "cancelled", Message: "cancelled by user"}
+	}
+
+	data, err := json.Marshal(existing)
+	if err != nil {
+		return nil, err
+	}
+
+	// Conditional UPDATE: only write if status is still non-terminal.
+	// If a dispatcher races and marks it completed/failed between our GetTask
+	// and this UPDATE, RowsAffected == 0 and we return ErrTaskTerminal.
+	result, err := s.pool.Exec(ctx,
+		`UPDATE tasks SET data = $1::jsonb
+		 WHERE id = $2
+		   AND data->>'status' NOT IN ('completed', 'failed', 'cancelled')`,
+		data, id)
+	if err != nil {
+		return nil, err
+	}
+	if result.RowsAffected() == 0 {
+		return nil, ErrTaskTerminal
+	}
+	return existing, nil
+}
+
 func (s *PostgreSQLStore) ListTasks(ctx context.Context) []*protocol.Task {
 	tasks, _ := pgList[protocol.Task](ctx, s.pool, "SELECT data FROM tasks ORDER BY id")
 	return tasks

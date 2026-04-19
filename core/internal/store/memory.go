@@ -149,6 +149,30 @@ func (s *MemoryStore) UpdateTask(_ context.Context, t *protocol.Task) error {
 	return nil
 }
 
+// CancelTask atomically transitions the task to cancelled under the write lock,
+// preventing the TOCTOU race between a concurrent dispatcher completion and a
+// user-initiated cancel.
+func (s *MemoryStore) CancelTask(_ context.Context, id string) (*protocol.Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tasks[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	switch t.Status {
+	case protocol.TaskCompleted, protocol.TaskFailed, protocol.TaskCancelled:
+		return nil, ErrTaskTerminal
+	}
+	now := time.Now()
+	t.Status = protocol.TaskCancelled
+	t.CompletedAt = &now
+	if t.Error == nil {
+		t.Error = &protocol.TaskError{Code: "cancelled", Message: "cancelled by user"}
+	}
+	s.tasks[id] = t
+	return protocol.DeepCopyTask(t), nil
+}
+
 func (s *MemoryStore) ListTasks(_ context.Context) []*protocol.Task {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
