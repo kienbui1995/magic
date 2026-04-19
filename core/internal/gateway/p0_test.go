@@ -226,12 +226,14 @@ func TestPauseResumeWorker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("pause: got %d, want 200", resp.StatusCode)
 	}
 
 	// Verify worker status is paused
 	getResp, _ := http.Get(srv.URL + "/api/v1/workers/" + id)
+	defer getResp.Body.Close()
 	var worker protocol.Worker
 	json.NewDecoder(getResp.Body).Decode(&worker) //nolint:errcheck
 	if worker.Status != protocol.StatusPaused {
@@ -243,12 +245,14 @@ func TestPauseResumeWorker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusOK {
 		t.Fatalf("resume: got %d, want 200", resp2.StatusCode)
 	}
 
 	// Idempotent resume
 	resp3, _ := http.Post(srv.URL+"/api/v1/workers/"+id+"/resume", "application/json", nil)
+	defer resp3.Body.Close()
 	if resp3.StatusCode != http.StatusOK {
 		t.Errorf("idempotent resume: got %d", resp3.StatusCode)
 	}
@@ -263,6 +267,7 @@ func TestPauseWorker_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("pause nonexistent: got %d, want 404", resp.StatusCode)
 	}
@@ -280,6 +285,7 @@ func TestValidation_RegisterWorker_MissingName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("missing name: got %d, want 400", resp.StatusCode)
 	}
@@ -304,6 +310,7 @@ func TestValidation_SubmitTask_InvalidPriority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("invalid priority: got %d, want 400", resp.StatusCode)
 	}
@@ -319,6 +326,7 @@ func TestValidation_SubmitTask_MissingType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("missing type: got %d, want 400", resp.StatusCode)
 	}
@@ -334,6 +342,7 @@ func TestValidation_CreateTeam_MissingOrgID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("missing org_id: got %d, want 400", resp.StatusCode)
 	}
