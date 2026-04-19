@@ -134,9 +134,9 @@ async def register(cfg: WorkerCfg) -> None:
 
 
 def serve(cfg: WorkerCfg) -> None:
-    srv = ThreadingHTTPServer(("0.0.0.0", cfg.port), Handler)  # NOSONAR python:S5332 — benchmark worker uses plain HTTP by design; TLS is the gateway's responsibility
+    srv = ThreadingHTTPServer(("0.0.0.0", cfg.port), Handler)
     print(f"echo worker listening on :{cfg.port}")
-    srv.serve_forever()
+    srv.serve_forever()  # NOSONAR python:S5332 — benchmark worker, plain HTTP intentional; TLS is gateway's responsibility
 
 
 def parse_args() -> WorkerCfg:
