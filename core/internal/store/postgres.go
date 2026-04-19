@@ -193,10 +193,18 @@ func (s *PostgreSQLStore) GetWorker(ctx context.Context, id string) (*protocol.W
 }
 
 func (s *PostgreSQLStore) UpdateWorker(ctx context.Context, w *protocol.Worker) error {
-	if _, err := s.GetWorker(ctx, w.ID); err != nil {
+	data, err := json.Marshal(w)
+	if err != nil {
 		return err
 	}
-	return pgPut(ctx, s.pool, "workers", w.ID, w)
+	res, err := s.pool.Exec(ctx, `UPDATE workers SET data = $2::jsonb WHERE id = $1`, w.ID, data)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return fmt.Errorf("worker %s not found", w.ID)
+	}
+	return nil
 }
 
 func (s *PostgreSQLStore) RemoveWorker(ctx context.Context, id string) error {
@@ -294,10 +302,18 @@ func (s *PostgreSQLStore) GetWorkflow(ctx context.Context, id string) (*protocol
 }
 
 func (s *PostgreSQLStore) UpdateWorkflow(ctx context.Context, w *protocol.Workflow) error {
-	if _, err := s.GetWorkflow(ctx, w.ID); err != nil {
+	data, err := json.Marshal(w)
+	if err != nil {
 		return err
 	}
-	return pgPut(ctx, s.pool, "workflows", w.ID, w)
+	res, err := s.pool.Exec(ctx, `UPDATE workflows SET data = $2::jsonb WHERE id = $1`, w.ID, data)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return fmt.Errorf("workflow %s not found", w.ID)
+	}
+	return nil
 }
 
 func (s *PostgreSQLStore) ListWorkflows(ctx context.Context) []*protocol.Workflow {
@@ -316,10 +332,18 @@ func (s *PostgreSQLStore) GetTeam(ctx context.Context, id string) (*protocol.Tea
 }
 
 func (s *PostgreSQLStore) UpdateTeam(ctx context.Context, t *protocol.Team) error {
-	if _, err := s.GetTeam(ctx, t.ID); err != nil {
+	data, err := json.Marshal(t)
+	if err != nil {
 		return err
 	}
-	return pgPut(ctx, s.pool, "teams", t.ID, t)
+	res, err := s.pool.Exec(ctx, `UPDATE teams SET data = $2::jsonb WHERE id = $1`, t.ID, data)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return fmt.Errorf("team %s not found", t.ID)
+	}
+	return nil
 }
 
 func (s *PostgreSQLStore) RemoveTeam(ctx context.Context, id string) error {
@@ -342,10 +366,18 @@ func (s *PostgreSQLStore) GetKnowledge(ctx context.Context, id string) (*protoco
 }
 
 func (s *PostgreSQLStore) UpdateKnowledge(ctx context.Context, k *protocol.KnowledgeEntry) error {
-	if _, err := s.GetKnowledge(ctx, k.ID); err != nil {
+	data, err := json.Marshal(k)
+	if err != nil {
 		return err
 	}
-	return pgPut(ctx, s.pool, "knowledge", k.ID, k)
+	res, err := s.pool.Exec(ctx, `UPDATE knowledge SET data = $2::jsonb WHERE id = $1`, k.ID, data)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return fmt.Errorf("knowledge entry %s not found", k.ID)
+	}
+	return nil
 }
 
 func (s *PostgreSQLStore) DeleteKnowledge(ctx context.Context, id string) error {

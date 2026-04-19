@@ -442,7 +442,7 @@ func (g *Gateway) handleCreateTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	team, err := g.deps.OrgMgr.CreateTeam(req.Name, req.OrgID, req.DailyBudget)
+	team, err := g.deps.OrgMgr.CreateTeam(r.Context(), req.Name, req.OrgID, req.DailyBudget)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create team")
 		return
@@ -453,7 +453,7 @@ func (g *Gateway) handleCreateTeam(w http.ResponseWriter, r *http.Request) {
 
 func (g *Gateway) handleListTeams(w http.ResponseWriter, r *http.Request) {
 	limit, offset := getPagination(r)
-	teams := g.deps.OrgMgr.ListTeams()
+	teams := g.deps.OrgMgr.ListTeams(r.Context())
 	writeJSON(w, http.StatusOK, paginate(teams, limit, offset))
 }
 
@@ -477,7 +477,7 @@ func (g *Gateway) handleAddKnowledge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entry, err := g.deps.Knowledge.Add(req.Title, req.Content, req.Tags, req.Scope, req.ScopeID, req.CreatedBy)
+	entry, err := g.deps.Knowledge.Add(r.Context(), req.Title, req.Content, req.Tags, req.Scope, req.ScopeID, req.CreatedBy)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to add knowledge entry")
 		return
@@ -491,9 +491,9 @@ func (g *Gateway) handleSearchKnowledge(w http.ResponseWriter, r *http.Request) 
 	query := r.URL.Query().Get("q")
 	var entries []*protocol.KnowledgeEntry
 	if query != "" {
-		entries = g.deps.Knowledge.Search(query)
+		entries = g.deps.Knowledge.Search(r.Context(), query)
 	} else {
-		entries = g.deps.Knowledge.List()
+		entries = g.deps.Knowledge.List(r.Context())
 	}
 	writeJSON(w, http.StatusOK, paginate(entries, limit, offset))
 }
@@ -844,7 +844,7 @@ func (g *Gateway) handleCreateWebhook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid webhook URL: %v", err))
 		return
 	}
-	hook, err := g.deps.Webhook.CreateWebhook(orgID, req.URL, req.Events, req.Secret)
+	hook, err := g.deps.Webhook.CreateWebhook(r.Context(), orgID, req.URL, req.Events, req.Secret)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create webhook")
 		return
@@ -858,7 +858,7 @@ func (g *Gateway) handleCreateWebhook(w http.ResponseWriter, r *http.Request) {
 func (g *Gateway) handleListWebhooks(w http.ResponseWriter, r *http.Request) {
 	orgID := r.PathValue("orgID")
 	limit, offset := getPagination(r)
-	writeJSON(w, http.StatusOK, paginate(g.deps.Webhook.ListWebhooks(orgID), limit, offset))
+	writeJSON(w, http.StatusOK, paginate(g.deps.Webhook.ListWebhooks(r.Context(), orgID), limit, offset))
 }
 
 // handleDeleteWebhook removes a webhook by ID.
@@ -878,7 +878,7 @@ func (g *Gateway) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := g.deps.Webhook.DeleteWebhook(webhookID); err != nil {
+	if err := g.deps.Webhook.DeleteWebhook(r.Context(), webhookID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete webhook")
 		return
 	}
@@ -899,7 +899,7 @@ func (g *Gateway) handleListWebhookDeliveries(w http.ResponseWriter, r *http.Req
 	}
 
 	limit, offset := getPagination(r)
-	writeJSON(w, http.StatusOK, paginate(g.deps.Webhook.ListDeliveries(webhookID), limit, offset))
+	writeJSON(w, http.StatusOK, paginate(g.deps.Webhook.ListDeliveries(r.Context(), webhookID), limit, offset))
 }
 
 // handleResubscribeStream returns the result of a completed/failed task as a single SSE event.

@@ -15,7 +15,7 @@ func TestOrgManager_CreateTeam(t *testing.T) {
 	bus := events.NewBus()
 	mgr := orgmgr.New(s, bus)
 
-	team, err := mgr.CreateTeam("Marketing", "org_magic", 10.0)
+	team, err := mgr.CreateTeam(context.Background(), "Marketing", "org_magic", 10.0)
 	if err != nil {
 		t.Fatalf("CreateTeam: %v", err)
 	}
@@ -35,11 +35,11 @@ func TestOrgManager_AssignWorker(t *testing.T) {
 	bus := events.NewBus()
 	mgr := orgmgr.New(s, bus)
 
-	team, _ := mgr.CreateTeam("Marketing", "org_magic", 10.0)
+	team, _ := mgr.CreateTeam(context.Background(), "Marketing", "org_magic", 10.0)
 	w := &protocol.Worker{ID: "worker_001", Name: "Bot", Status: protocol.StatusActive}
 	s.AddWorker(context.Background(), w)
 
-	err := mgr.AssignWorker(team.ID, "worker_001")
+	err := mgr.AssignWorker(context.Background(), team.ID, "worker_001")
 	if err != nil {
 		t.Fatalf("AssignWorker: %v", err)
 	}
@@ -60,12 +60,12 @@ func TestOrgManager_RemoveWorker(t *testing.T) {
 	bus := events.NewBus()
 	mgr := orgmgr.New(s, bus)
 
-	team, _ := mgr.CreateTeam("Marketing", "org_magic", 10.0)
+	team, _ := mgr.CreateTeam(context.Background(), "Marketing", "org_magic", 10.0)
 	w := &protocol.Worker{ID: "worker_001", Name: "Bot", Status: protocol.StatusActive}
 	s.AddWorker(context.Background(), w)
-	mgr.AssignWorker(team.ID, "worker_001")
+	mgr.AssignWorker(context.Background(), team.ID, "worker_001")
 
-	err := mgr.RemoveWorker(team.ID, "worker_001")
+	err := mgr.RemoveWorker(context.Background(), team.ID, "worker_001")
 	if err != nil {
 		t.Fatalf("RemoveWorker: %v", err)
 	}
@@ -86,10 +86,10 @@ func TestOrgManager_ListTeams(t *testing.T) {
 	bus := events.NewBus()
 	mgr := orgmgr.New(s, bus)
 
-	mgr.CreateTeam("Marketing", "org_magic", 10.0)
-	mgr.CreateTeam("Sales", "org_magic", 15.0)
+	mgr.CreateTeam(context.Background(), "Marketing", "org_magic", 10.0)
+	mgr.CreateTeam(context.Background(), "Sales", "org_magic", 15.0)
 
-	teams := mgr.ListTeams()
+	teams := mgr.ListTeams(context.Background())
 	if len(teams) != 2 {
 		t.Errorf("ListTeams: got %d, want 2", len(teams))
 	}
@@ -100,14 +100,14 @@ func TestOrgManager_DeleteTeam(t *testing.T) {
 	bus := events.NewBus()
 	mgr := orgmgr.New(s, bus)
 
-	team, _ := mgr.CreateTeam("Marketing", "org_magic", 10.0)
+	team, _ := mgr.CreateTeam(context.Background(), "Marketing", "org_magic", 10.0)
 
-	err := mgr.DeleteTeam(team.ID)
+	err := mgr.DeleteTeam(context.Background(), team.ID)
 	if err != nil {
 		t.Fatalf("DeleteTeam: %v", err)
 	}
 
-	teams := mgr.ListTeams()
+	teams := mgr.ListTeams(context.Background())
 	if len(teams) != 0 {
 		t.Errorf("ListTeams after delete: got %d", len(teams))
 	}

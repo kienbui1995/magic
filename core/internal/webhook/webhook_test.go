@@ -158,6 +158,15 @@ func TestManager_OnEvent_IgnoresNonMatchingEvent(t *testing.T) {
 	}
 }
 
+// newTestSender returns a Sender with SSRF validation disabled.
+// Tests that call deliver() with a local httptest.Server URL need this
+// because validateDeliveryURL now correctly blocks loopback addresses.
+func newTestSender(s store.Store) *Sender {
+	sender := newSender(s)
+	sender.validateURL = func(string) error { return nil }
+	return sender
+}
+
 // --- Sender tests ---
 
 func TestSender_Deliver_Success(t *testing.T) {
@@ -177,7 +186,7 @@ func TestSender_Deliver_Success(t *testing.T) {
 		t.Fatalf("AddWebhookDelivery: %v", err)
 	}
 
-	sender := newSender(s)
+	sender := newTestSender(s)
 	sender.deliver(d, hook)
 
 	// The delivery object should be updated in memory (deliver modifies d directly)
@@ -210,7 +219,7 @@ func TestSender_Deliver_HMACSignature(t *testing.T) {
 		t.Fatalf("AddWebhookDelivery: %v", err)
 	}
 
-	sender := newSender(s)
+	sender := newTestSender(s)
 	sender.deliver(d, hook)
 
 	if capturedSig == "" {
@@ -258,7 +267,7 @@ func TestSender_Deliver_NoSignatureWhenNoSecret(t *testing.T) {
 		t.Fatalf("AddWebhookDelivery: %v", err)
 	}
 
-	sender := newSender(s)
+	sender := newTestSender(s)
 	sender.deliver(d, hook)
 
 	if sigHeaderPresent {

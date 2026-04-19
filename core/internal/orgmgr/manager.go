@@ -17,15 +17,14 @@ func New(s store.Store, bus *events.Bus) *Manager {
 	return &Manager{store: s, bus: bus}
 }
 
-func (m *Manager) CreateTeam(name, orgID string, dailyBudget float64) (*protocol.Team, error) {
+func (m *Manager) CreateTeam(ctx context.Context, name, orgID string, dailyBudget float64) (*protocol.Team, error) {
 	team := &protocol.Team{
 		ID:          protocol.GenerateID("team"),
 		Name:        name,
 		OrgID:       orgID,
 		DailyBudget: dailyBudget,
 	}
-	// TODO(ctx): propagate from caller once orgmgr API takes ctx.
-	if err := m.store.AddTeam(context.TODO(), team); err != nil {
+	if err := m.store.AddTeam(ctx, team); err != nil {
 		return nil, err
 	}
 	m.bus.Publish(events.Event{
@@ -36,9 +35,8 @@ func (m *Manager) CreateTeam(name, orgID string, dailyBudget float64) (*protocol
 	return team, nil
 }
 
-func (m *Manager) DeleteTeam(teamID string) error {
-	// TODO(ctx): propagate from caller once orgmgr API takes ctx.
-	if err := m.store.RemoveTeam(context.TODO(), teamID); err != nil {
+func (m *Manager) DeleteTeam(ctx context.Context, teamID string) error {
+	if err := m.store.RemoveTeam(ctx, teamID); err != nil {
 		return err
 	}
 	m.bus.Publish(events.Event{
@@ -49,17 +47,15 @@ func (m *Manager) DeleteTeam(teamID string) error {
 	return nil
 }
 
-func (m *Manager) ListTeams() []*protocol.Team {
-	return m.store.ListTeams(context.TODO()) // TODO(ctx): propagate from caller.
+func (m *Manager) ListTeams(ctx context.Context) []*protocol.Team {
+	return m.store.ListTeams(ctx)
 }
 
-func (m *Manager) GetTeam(id string) (*protocol.Team, error) {
-	return m.store.GetTeam(context.TODO(), id) // TODO(ctx): propagate from caller.
+func (m *Manager) GetTeam(ctx context.Context, id string) (*protocol.Team, error) {
+	return m.store.GetTeam(ctx, id)
 }
 
-func (m *Manager) AssignWorker(teamID, workerID string) error {
-	// TODO(ctx): propagate from caller once orgmgr API takes ctx.
-	ctx := context.TODO()
+func (m *Manager) AssignWorker(ctx context.Context, teamID, workerID string) error {
 	team, err := m.store.GetTeam(ctx, teamID)
 	if err != nil {
 		return err
@@ -84,9 +80,7 @@ func (m *Manager) AssignWorker(teamID, workerID string) error {
 	return nil
 }
 
-func (m *Manager) RemoveWorker(teamID, workerID string) error {
-	// TODO(ctx): propagate from caller once orgmgr API takes ctx.
-	ctx := context.TODO()
+func (m *Manager) RemoveWorker(ctx context.Context, teamID, workerID string) error {
 	team, err := m.store.GetTeam(ctx, teamID)
 	if err != nil {
 		return err

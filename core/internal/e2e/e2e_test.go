@@ -96,7 +96,7 @@ func TestE2E_WebhookDelivery(t *testing.T) {
 
 	const secret = "test-secret-do-not-use-in-prod"
 	const orgID = "org_e2e"
-	hook, err := fs.Webhook.CreateWebhook(orgID, receiver.URL(),
+	hook, err := fs.Webhook.CreateWebhook(context.Background(), orgID, receiver.URL(),
 		[]string{"task.completed"}, secret)
 	if err != nil {
 		t.Fatalf("CreateWebhook: %v", err)

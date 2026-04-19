@@ -32,16 +32,20 @@ const maxAttempts = 5
 
 // Sender processes pending WebhookDelivery records from the store every 5s.
 type Sender struct {
-	store  store.Store
-	client *http.Client
-	stop   chan struct{}
+	store       store.Store
+	client      *http.Client
+	stop        chan struct{}
+	// validateURL is the SSRF guard applied before each delivery attempt.
+	// Tests may replace this with a no-op to reach a local httptest server.
+	validateURL func(rawURL string) error
 }
 
 func newSender(s store.Store) *Sender {
 	return &Sender{
-		store:  s,
-		client: &http.Client{Timeout: 10 * time.Second},
-		stop:   make(chan struct{}),
+		store:       s,
+		client:      &http.Client{Timeout: 10 * time.Second},
+		stop:        make(chan struct{}),
+		validateURL: validateDeliveryURL,
 	}
 }
 
@@ -95,7 +99,7 @@ func (s *Sender) deliver(d *protocol.WebhookDelivery, hook *protocol.Webhook) {
 	span.SetAttr("delivery.attempt", d.Attempts+1)
 
 	// SSRF defense-in-depth: validate URL before delivery
-	if err := validateDeliveryURL(hook.URL); err != nil {
+	if err := s.validateURL(hook.URL); err != nil {
 		span.SetError(err)
 		log.Printf("[webhook] delivery %s blocked: %v", d.ID, err)
 		s.markDead(d)
@@ -188,8 +192,8 @@ func validateDeliveryURL(rawURL string) error {
 	host := u.Hostname()
 	// Check literal IP
 	if ip := net.ParseIP(host); ip != nil {
-		if !ip.IsLoopback() && (ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified()) {
-			return fmt.Errorf("private IP blocked")
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			return fmt.Errorf("private/loopback IP blocked")
 		}
 		if host == "169.254.169.254" {
 			return fmt.Errorf("metadata endpoint blocked")
@@ -205,8 +209,8 @@ func validateDeliveryURL(rawURL string) error {
 		return nil // DNS failure — allow, will fail at delivery
 	}
 	for _, ip := range ips {
-		if ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
-			return fmt.Errorf("hostname resolves to private IP")
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			return fmt.Errorf("hostname resolves to private/loopback IP")
 		}
 	}
 	return nil
