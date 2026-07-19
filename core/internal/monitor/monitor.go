@@ -48,6 +48,9 @@ func (m *Monitor) Start() {
 			workerID, _ := e.Payload["worker_id"].(string)
 			taskType, _ := e.Payload["task_type"].(string)
 			MetricTasksTotal.WithLabelValues(taskType, "completed", workerID).Inc()
+			if ms, ok := e.Payload["duration_ms"].(float64); ok && ms >= 0 {
+				MetricTaskDuration.WithLabelValues(taskType, workerID).Observe(ms / 1000.0)
+			}
 		case "task.failed":
 			atomic.AddInt64(&m.stats.TasksFailed, 1)
 			workerID, _ := e.Payload["worker_id"].(string)
@@ -85,6 +88,11 @@ func (m *Monitor) Start() {
 				workerID, _ := e.Payload["worker_id"].(string)
 				MetricCostTotalUSD.WithLabelValues(orgID, workerID).Add(cost)
 			}
+		case "budget.exceeded":
+			orgID, _ := e.Payload["org_id"].(string)
+			workerID, _ := e.Payload["worker_id"].(string)
+			policy, _ := e.Payload["policy"].(string)
+			MetricBudgetExceededTotal.WithLabelValues(orgID, workerID, policy).Inc()
 		}
 
 		entry := toLogEntry(e)

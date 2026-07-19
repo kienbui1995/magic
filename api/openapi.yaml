@@ -1,0 +1,1834 @@
+openapi: 3.0.3
+info:
+  title: MagiC Protocol (MCP²) API
+  version: 1.0.0
+  description: |
+    **MagiC** (capital C = Company / Crew / Claw) is an open-source framework for
+    managing fleets of AI workers. Think *"Kubernetes for AI agents"* — it doesn't
+    build agents, it manages any agents built with any tool (CrewAI, LangChain,
+    custom bots, etc.) through an open protocol.
+
+    This document describes the HTTP surface of the MagiC Gateway, implementing
+    MagiC Protocol (MCP²) version **1.0**. All responses include the
+    `X-API-Version` header carrying the server's protocol version. Clients may
+    send the same header to assert a target version — a mismatched MAJOR is
+    rejected; a mismatched MINOR is served with a `Warning` header.
+
+    Repository: <https://github.com/kienbui1995/magic>
+
+    License: Apache-2.0.
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+  contact:
+    name: MagiC
+    url: https://github.com/kienbui1995/magic
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server (in-memory store)
+  - url: https://api.magic-claw.dev
+    description: Placeholder production endpoint
+
+tags:
+  - name: Observability
+    description: Health, metrics, protocol version probes
+  - name: Workers
+    description: Register, heartbeat, list, pause/resume, deregister AI workers
+  - name: Tasks
+    description: Submit tasks, get status, stream results via SSE, cancel
+  - name: Workflows
+    description: Submit multi-step DAG workflows, approve human-in-the-loop steps
+  - name: Teams
+    description: Teams grouping workers with shared budgets and approval policies
+  - name: Knowledge
+    description: Shared knowledge hub with keyword and semantic (pgvector) search
+  - name: Webhooks
+    description: At-least-once event delivery with HMAC-signed payloads
+  - name: RBAC
+    description: Role bindings (owner / admin / viewer) scoped per organization
+  - name: Policies
+    description: Org-level constraint engine (allowed capabilities, cost limits)
+  - name: Tokens
+    description: Worker authentication tokens (mct_ prefix) — admin-only
+  - name: Audit
+    description: Security-relevant action log, queryable per organization
+  - name: DLQ
+    description: Dead-letter queue for tasks that exhausted all retries
+  - name: LLM
+    description: LLM gateway — multi-provider chat with auto-routing & cost tracking
+  - name: Prompts
+    description: Versioned prompt template registry with variable interpolation
+  - name: Memory
+    description: Agent conversation memory (short-term turns + long-term vectors)
+
+security:
+  - AdminApiKey: []
+  - OIDCBearer: []
+
+paths:
+  /health:
+    get:
+      tags: [Observability]
+      operationId: getHealth
+      summary: Health probe
+      description: Returns server status, protocol version, and current time. No auth.
+      security: []
+      responses:
+        '200':
+          description: Healthy
+          headers:
+            X-API-Version: { $ref: '#/components/headers/XApiVersion' }
+            X-Request-ID: { $ref: '#/components/headers/XRequestId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthResponse' }
+
+  /metrics:
+    get:
+      tags: [Observability]
+      operationId: getPrometheusMetrics
+      summary: Prometheus metrics
+      description: Prometheus text-format metrics. No auth — scrapers use no bearer.
+      security: []
+      responses:
+        '200':
+          description: Metrics exposition
+          content:
+            text/plain: { schema: { type: string } }
+
+  /api/v1/metrics:
+    get:
+      tags: [Observability]
+      operationId: getStats
+      summary: JSON server stats
+      responses:
+        '200':
+          description: Stats snapshot
+          content:
+            application/json: { schema: { type: object, additionalProperties: true } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/workers/register:
+    post:
+      tags: [Workers]
+      operationId: registerWorker
+      summary: Register a worker with the registry
+      security:
+        - WorkerToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterPayload' }
+      responses:
+        '201':
+          description: Worker registered
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Worker' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/workers/heartbeat:
+    post:
+      tags: [Workers]
+      operationId: workerHeartbeat
+      summary: Worker heartbeat
+      description: Workers must heartbeat every 30s or they go offline.
+      security:
+        - WorkerToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HeartbeatPayload' }
+      responses:
+        '200':
+          description: Heartbeat acknowledged
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/StatusOk' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/workers:
+    get:
+      tags: [Workers]
+      operationId: listWorkers
+      summary: List registered workers
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: List of workers
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Worker' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/workers/{id}:
+    get:
+      tags: [Workers]
+      operationId: getWorker
+      summary: Get worker by ID
+      parameters:
+        - $ref: '#/components/parameters/WorkerId'
+      responses:
+        '200':
+          description: Worker
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Worker' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Workers]
+      operationId: deregisterWorker
+      summary: Deregister a worker
+      security:
+        - WorkerToken: []
+      parameters:
+        - $ref: '#/components/parameters/WorkerId'
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/StatusDeleted' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/workers/{id}/pause:
+    post:
+      tags: [Workers]
+      operationId: pauseWorker
+      summary: Pause a worker (router skips it)
+      security:
+        - WorkerToken: []
+      parameters:
+        - $ref: '#/components/parameters/WorkerId'
+      responses:
+        '200':
+          description: Paused
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/workers/{id}/resume:
+    post:
+      tags: [Workers]
+      operationId: resumeWorker
+      summary: Resume a paused worker
+      security:
+        - WorkerToken: []
+      parameters:
+        - $ref: '#/components/parameters/WorkerId'
+      responses:
+        '200':
+          description: Resumed
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/tasks:
+    post:
+      tags: [Tasks]
+      operationId: submitTask
+      summary: Submit a task for routing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Task' }
+      responses:
+        '201':
+          description: Task accepted and routed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PolicyViolation' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    get:
+      tags: [Tasks]
+      operationId: listTasks
+      summary: List tasks
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Task' }
+
+  /api/v1/tasks/stream:
+    post:
+      tags: [Tasks]
+      operationId: streamTask
+      summary: Submit and stream a task via SSE
+      description: |
+        Submits a task and streams the worker's output back as an SSE stream.
+        Each SSE event is JSON-encoded with shape
+        `{"chunk": any, "task_id": string, "done": bool}` on success or
+        `{"error": string, "done": true}` on failure.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StreamTaskRequest' }
+      responses:
+        '200':
+          description: SSE stream (text/event-stream)
+          content:
+            text/event-stream: { schema: { type: string } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/PolicyViolation' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /api/v1/tasks/{id}:
+    get:
+      tags: [Tasks]
+      operationId: getTask
+      summary: Get task by ID
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: Task
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Task' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/tasks/{id}/cancel:
+    post:
+      tags: [Tasks]
+      operationId: cancelTask
+      summary: Cancel a non-terminal task
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Task' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Task already in terminal state
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+
+  /api/v1/tasks/{id}/stream:
+    get:
+      tags: [Tasks]
+      operationId: resubscribeTaskStream
+      summary: Resubscribe to a terminal task's result via SSE
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: SSE event with result or error
+          content:
+            text/event-stream: { schema: { type: string } }
+        '202':
+          description: Task is still running — poll GET /api/v1/tasks/{id}
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/workflows:
+    post:
+      tags: [Workflows]
+      operationId: submitWorkflow
+      summary: Submit a multi-step workflow (DAG)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkflowRequest' }
+      responses:
+        '201':
+          description: Workflow created
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Workflow' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+    get:
+      tags: [Workflows]
+      operationId: listWorkflows
+      summary: List workflows
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Workflows
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Workflow' }
+
+  /api/v1/workflows/{id}:
+    get:
+      tags: [Workflows]
+      operationId: getWorkflow
+      summary: Get workflow by ID
+      parameters:
+        - $ref: '#/components/parameters/WorkflowId'
+      responses:
+        '200':
+          description: Workflow
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Workflow' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/workflows/{id}/approve/{stepId}:
+    post:
+      tags: [Workflows]
+      operationId: approveWorkflowStep
+      summary: Approve a workflow step awaiting human approval
+      parameters:
+        - $ref: '#/components/parameters/WorkflowId'
+        - name: stepId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Approved
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/v1/workflows/{id}/cancel:
+    post:
+      tags: [Workflows]
+      operationId: cancelWorkflow
+      summary: Cancel a running workflow
+      parameters:
+        - $ref: '#/components/parameters/WorkflowId'
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/StatusResponse' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/v1/teams:
+    post:
+      tags: [Teams]
+      operationId: createTeam
+      summary: Create a team inside an organization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTeamRequest' }
+      responses:
+        '201':
+          description: Team created
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Team' } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+    get:
+      tags: [Teams]
+      operationId: listTeams
+      summary: List teams
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Teams
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Team' }
+
+  /api/v1/costs:
+    get:
+      tags: [Observability]
+      operationId: getCostReport
+      summary: Org-level cost report
+      responses:
+        '200':
+          description: Cost report
+          content:
+            application/json: { schema: { type: object, additionalProperties: true } }
+
+  /api/v1/knowledge:
+    post:
+      tags: [Knowledge]
+      operationId: addKnowledge
+      summary: Add a knowledge entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddKnowledgeRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/KnowledgeEntry' } }
+    get:
+      tags: [Knowledge]
+      operationId: searchKnowledge
+      summary: List or keyword-search knowledge entries
+      parameters:
+        - name: q
+          in: query
+          description: Optional keyword query (omit to list all)
+          schema: { type: string }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/KnowledgeEntry' }
+
+  /api/v1/knowledge/{id}/embedding:
+    post:
+      tags: [Knowledge]
+      operationId: addKnowledgeEmbedding
+      summary: Attach a vector embedding to an entry (pgvector required)
+      parameters:
+        - $ref: '#/components/parameters/KnowledgeId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddEmbeddingRequest' }
+      responses:
+        '200':
+          description: Stored
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/StatusOk' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '501':
+          description: pgvector backend not configured
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+
+  /api/v1/knowledge/search/semantic:
+    post:
+      tags: [Knowledge]
+      operationId: semanticSearchKnowledge
+      summary: Semantic (vector) search over knowledge entries
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SemanticSearchRequest' }
+      responses:
+        '200':
+          description: Ranked matches
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: object, additionalProperties: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '501':
+          description: pgvector backend not configured
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+
+  /api/v1/orgs/{orgID}/tokens:
+    post:
+      tags: [Tokens]
+      operationId: createWorkerToken
+      summary: Create a new worker token for an organization
+      description: |
+        Returns the raw token **exactly once** (`mct_...` prefix). Only the hash
+        is persisted. Admin-only.
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTokenRequest' }
+      responses:
+        '201':
+          description: Token created (raw token included — only shown here)
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/CreateTokenResponse' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    get:
+      tags: [Tokens]
+      operationId: listWorkerTokens
+      summary: List tokens for an organization
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Tokens (hashes and raw values redacted)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/WorkerToken' }
+
+  /api/v1/orgs/{orgID}/tokens/{tokenID}:
+    delete:
+      tags: [Tokens]
+      operationId: revokeWorkerToken
+      summary: Revoke a worker token
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - name: tokenID
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Revoked
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/RevokeTokenResponse' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/orgs/{orgID}/audit:
+    get:
+      tags: [Audit]
+      operationId: queryAuditLog
+      summary: Query audit log entries for an organization
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - name: worker_id
+          in: query
+          schema: { type: string }
+        - name: action
+          in: query
+          schema: { type: string }
+        - name: start
+          in: query
+          description: RFC3339 timestamp
+          schema: { type: string, format: date-time }
+        - name: end
+          in: query
+          description: RFC3339 timestamp
+          schema: { type: string, format: date-time }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Page of audit entries
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/AuditPage' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/orgs/{orgID}/webhooks:
+    post:
+      tags: [Webhooks]
+      operationId: createWebhook
+      summary: Register a webhook for event delivery
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateWebhookRequest' }
+      responses:
+        '201':
+          description: Created (secret omitted from response)
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Webhook' } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+    get:
+      tags: [Webhooks]
+      operationId: listWebhooks
+      summary: List webhooks for an organization
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Webhooks
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Webhook' }
+
+  /api/v1/orgs/{orgID}/webhooks/{webhookID}:
+    delete:
+      tags: [Webhooks]
+      operationId: deleteWebhook
+      summary: Remove a webhook
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - name: webhookID
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/orgs/{orgID}/webhooks/{webhookID}/deliveries:
+    get:
+      tags: [Webhooks]
+      operationId: listWebhookDeliveries
+      summary: List delivery attempts for a webhook
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - name: webhookID
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Deliveries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/WebhookDelivery' }
+
+  /api/v1/orgs/{orgID}/roles:
+    post:
+      tags: [RBAC]
+      operationId: createRoleBinding
+      summary: Bind a subject (user / API key / token) to a role
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateRoleBindingRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/RoleBinding' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: Binding already exists
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/RoleBinding' } }
+    get:
+      tags: [RBAC]
+      operationId: listRoleBindings
+      summary: List role bindings for an organization
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Role bindings
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RoleBinding' }
+
+  /api/v1/orgs/{orgID}/roles/{roleID}:
+    delete:
+      tags: [RBAC]
+      operationId: deleteRoleBinding
+      summary: Remove a role binding
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - name: roleID
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/StatusDeleted' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/orgs/{orgID}/policies:
+    post:
+      tags: [Policies]
+      operationId: createPolicy
+      summary: Create an org policy
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreatePolicyRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Policy' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+    get:
+      tags: [Policies]
+      operationId: listPolicies
+      summary: List policies for an organization
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Policies
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Policy' }
+
+  /api/v1/orgs/{orgID}/policies/{policyID}:
+    get:
+      tags: [Policies]
+      operationId: getPolicy
+      summary: Get a policy by ID
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - $ref: '#/components/parameters/PolicyId'
+      responses:
+        '200':
+          description: Policy
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Policy' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Policies]
+      operationId: updatePolicy
+      summary: Update a policy (partial)
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - $ref: '#/components/parameters/PolicyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdatePolicyRequest' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Policy' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Policies]
+      operationId: deletePolicy
+      summary: Delete a policy
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - $ref: '#/components/parameters/PolicyId'
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/StatusDeleted' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/dlq:
+    get:
+      tags: [DLQ]
+      operationId: listDeadLetterQueue
+      summary: List tasks in the dead-letter queue
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: DLQ entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DLQEntry' }
+
+  /api/v1/llm/chat:
+    post:
+      tags: [LLM]
+      operationId: llmChat
+      summary: Multi-provider LLM chat completion
+      description: |
+        Routes to the cheapest / fastest / best provider that satisfies the
+        request. Streaming is not yet exposed through this endpoint — use the
+        task streaming endpoint for agent-mediated streaming.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChatRequest' }
+      responses:
+        '200':
+          description: Chat response
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ChatResponse' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404':
+          description: LLM gateway not configured
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '502':
+          description: Upstream LLM provider failure
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+
+  /api/v1/llm/models:
+    get:
+      tags: [LLM]
+      operationId: listLlmModels
+      summary: List available LLM models
+      responses:
+        '200':
+          description: Models
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ModelInfo' }
+        '404':
+          description: LLM gateway not configured
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+
+  /api/v1/prompts:
+    post:
+      tags: [Prompts]
+      operationId: addPrompt
+      summary: Register a prompt template (auto-versions by name)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddPromptRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/PromptTemplate' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404':
+          description: Prompt registry not configured
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    get:
+      tags: [Prompts]
+      operationId: listPrompts
+      summary: List prompt templates
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Prompts
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PromptTemplate' }
+
+  /api/v1/prompts/render:
+    post:
+      tags: [Prompts]
+      operationId: renderPrompt
+      summary: Render a prompt template with variables
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RenderPromptRequest' }
+      responses:
+        '200':
+          description: Rendered prompt
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/RenderPromptResponse' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/memory/turns:
+    post:
+      tags: [Memory]
+      operationId: addMemoryTurn
+      summary: Append a conversation turn to a session's short-term memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddMemoryTurnRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/StatusOk' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404':
+          description: Memory subsystem not configured
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    get:
+      tags: [Memory]
+      operationId: getMemoryTurns
+      summary: Fetch recent turns for a session
+      parameters:
+        - name: session_id
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Turns
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MemoryTurn' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403':
+          description: Session not accessible (org mismatch)
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+        '404':
+          description: Memory subsystem not configured
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+
+  /api/v1/memory/entries:
+    post:
+      tags: [Memory]
+      operationId: addMemoryEntry
+      summary: Upsert a long-term memory vector entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VectorEntry' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/StatusOk' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404':
+          description: Memory subsystem not configured
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+components:
+  headers:
+    XApiVersion:
+      description: Server protocol version (major.minor). Always set on every response.
+      schema: { type: string, example: "1.0" }
+    XRequestId:
+      description: Opaque request correlation ID echoed from client or generated by the server.
+      schema: { type: string }
+
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      description: Max items per page (1-1000, default 100)
+      schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+    Offset:
+      name: offset
+      in: query
+      description: Items to skip (default 0)
+      schema: { type: integer, minimum: 0, default: 0 }
+    OrgId:
+      name: orgID
+      in: path
+      required: true
+      schema: { type: string }
+    WorkerId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    TaskId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    WorkflowId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    KnowledgeId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    PolicyId:
+      name: policyID
+      in: path
+      required: true
+      schema: { type: string }
+
+  responses:
+    BadRequest:
+      description: Malformed request
+      content:
+        application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+    ValidationFailed:
+      description: Field-level validation error
+      content:
+        application/json: { schema: { $ref: '#/components/schemas/ValidationError' } }
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+    Forbidden:
+      description: Caller lacks permission for this resource
+      content:
+        application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+    Conflict:
+      description: Resource conflict (e.g., token already in use)
+      content:
+        application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+    RateLimited:
+      description: Too many requests
+      content:
+        application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+    ServiceUnavailable:
+      description: No worker available / upstream dependency down
+      content:
+        application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+    PolicyViolation:
+      description: Request blocked by org policy
+      content:
+        application/json: { schema: { $ref: '#/components/schemas/PolicyViolationResponse' } }
+
+  securitySchemes:
+    AdminApiKey:
+      description: |
+        Admin API key, configured via the `MAGIC_API_KEY` environment variable.
+        Send as `Authorization: Bearer <key>` or `X-API-Key: <key>`.
+      type: apiKey
+      in: header
+      name: X-API-Key
+    WorkerToken:
+      description: |
+        Worker token issued via `POST /api/v1/orgs/{orgID}/tokens`. Prefixed
+        with `mct_`. Send as `Authorization: Bearer mct_<...>`.
+      type: http
+      scheme: bearer
+      bearerFormat: mct_
+    OIDCBearer:
+      description: |
+        OAuth2 / OIDC JWT bearer token (Okta, Azure AD / Entra, Auth0,
+        Google Workspace, Keycloak, ...). Validated against the issuer's
+        JWKS. Enabled when `MAGIC_OIDC_ISSUER` is configured on the
+        server. See docs/security/oidc.md.
+      type: openIdConnect
+      openIdConnectUrl: https://example.com/.well-known/openid-configuration
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status, protocol_version, time]
+      properties:
+        status: { type: string, example: ok }
+        protocol_version: { type: string, example: "1.0" }
+        time: { type: string, format: date-time }
+
+    ValidationError:
+      type: object
+      required: [error, fields]
+      properties:
+        error: { type: string, enum: [validation_failed] }
+        fields:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field: { type: string }
+              message: { type: string }
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+
+    PaginatedResponse:
+      type: object
+      required: [entries, total, limit, offset]
+      properties:
+        entries:
+          type: array
+          items: { type: object }
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
+
+    StatusOk:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, example: ok }
+
+    StatusDeleted:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, example: deleted }
+
+    StatusResponse:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string }
+
+    PolicyViolationResponse:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string, example: policy violation }
+        violations:
+          type: array
+          items: { type: object, additionalProperties: true }
+
+    Capability:
+      type: object
+      required: [name, description]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        input_schema: { description: JSON Schema for task input }
+        output_schema: { description: JSON Schema for task output }
+        est_cost_per_call: { type: number, format: double }
+        avg_response_ms: { type: integer, format: int64 }
+        streaming: { type: boolean, description: Worker supports SSE streaming for this capability }
+
+    EndpointAuth:
+      type: object
+      required: [type, header]
+      properties:
+        type: { type: string }
+        header: { type: string }
+
+    Endpoint:
+      type: object
+      required: [type, url]
+      properties:
+        type: { type: string, example: http }
+        url: { type: string, format: uri }
+        auth: { $ref: '#/components/schemas/EndpointAuth' }
+
+    WorkerLimits:
+      type: object
+      properties:
+        max_concurrent_tasks: { type: integer }
+        rate_limit: { type: string, description: Go duration-like rate spec }
+        max_cost_per_day: { type: number, format: double }
+
+    Worker:
+      type: object
+      required: [id, name, capabilities, endpoint, limits, status, registered_at, last_heartbeat]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        org_id: { type: string }
+        team_id: { type: string }
+        capabilities:
+          type: array
+          items: { $ref: '#/components/schemas/Capability' }
+        endpoint: { $ref: '#/components/schemas/Endpoint' }
+        limits: { $ref: '#/components/schemas/WorkerLimits' }
+        status:
+          type: string
+          enum: [active, paused, offline]
+        current_load: { type: integer }
+        total_cost_today: { type: number, format: double }
+        registered_at: { type: string, format: date-time }
+        last_heartbeat: { type: string, format: date-time }
+        metadata:
+          type: object
+          additionalProperties: true
+        tags:
+          type: object
+          additionalProperties: { type: string }
+        session_mode:
+          type: string
+          enum: [stateless, sessionful]
+
+    RegisterPayload:
+      type: object
+      required: [name, endpoint]
+      properties:
+        worker_token: { type: string, description: Raw token (mct_…) identifying the calling worker }
+        name: { type: string, maxLength: 255 }
+        capabilities:
+          type: array
+          items: { $ref: '#/components/schemas/Capability' }
+        endpoint: { $ref: '#/components/schemas/Endpoint' }
+        limits: { $ref: '#/components/schemas/WorkerLimits' }
+        metadata:
+          type: object
+          additionalProperties: true
+
+    HeartbeatPayload:
+      type: object
+      required: [worker_id]
+      properties:
+        worker_token: { type: string }
+        worker_id: { type: string }
+        current_load: { type: integer }
+        status: { type: string, enum: [active, paused, offline] }
+
+    QualityCriterion:
+      type: object
+      required: [metric, threshold]
+      properties:
+        metric: { type: string }
+        threshold: { type: number, format: double }
+
+    RetryPolicy:
+      type: object
+      required: [max_retries]
+      properties:
+        max_retries: { type: integer }
+        backoff_ms: { type: integer, format: int64 }
+
+    Contract:
+      type: object
+      properties:
+        output_schema: { description: JSON Schema }
+        quality_criteria:
+          type: array
+          items: { $ref: '#/components/schemas/QualityCriterion' }
+        timeout_ms: { type: integer, format: int64 }
+        max_cost: { type: number, format: double }
+        retry_policy: { $ref: '#/components/schemas/RetryPolicy' }
+
+    RoutingConfig:
+      type: object
+      required: [strategy]
+      properties:
+        strategy:
+          type: string
+          enum: [best_match, round_robin, cheapest]
+        required_capabilities:
+          type: array
+          items: { type: string }
+        preferred_workers:
+          type: array
+          items: { type: string }
+        excluded_workers:
+          type: array
+          items: { type: string }
+
+    TaskContext:
+      type: object
+      properties:
+        org_id: { type: string }
+        team_id: { type: string }
+        requester: { type: string }
+        workflow_id: { type: string }
+
+    TaskError:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        details: { description: Arbitrary error details }
+
+    Task:
+      type: object
+      required: [id, type, priority, status, input, contract, routing, context, cost, progress, created_at]
+      properties:
+        id: { type: string }
+        trace_id: { type: string }
+        type: { type: string, maxLength: 255 }
+        priority:
+          type: string
+          enum: [low, normal, high, critical]
+        status:
+          type: string
+          enum: [pending, assigned, accepted, in_progress, completed, failed, cancelled]
+        input: { description: Task input (JSON) }
+        output: { description: Task output (JSON) }
+        contract: { $ref: '#/components/schemas/Contract' }
+        routing: { $ref: '#/components/schemas/RoutingConfig' }
+        assigned_worker: { type: string }
+        workflow_id: { type: string }
+        context: { $ref: '#/components/schemas/TaskContext' }
+        cost: { type: number, format: double }
+        progress: { type: integer }
+        created_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time }
+        error: { $ref: '#/components/schemas/TaskError' }
+
+    StreamTaskRequest:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string }
+        input: { description: Task input (JSON) }
+        context: { $ref: '#/components/schemas/TaskContext' }
+
+    WorkflowStep:
+      type: object
+      required: [id, task_type]
+      properties:
+        id: { type: string }
+        task_type: { type: string }
+        input: { description: Step input (JSON) }
+        depends_on:
+          type: array
+          items: { type: string }
+        on_failure: { type: string, description: "e.g. abort | continue | retry" }
+        approval_required: { type: boolean }
+        status:
+          type: string
+          enum: [pending, running, completed, failed, skipped, blocked, awaiting_approval]
+        task_id: { type: string }
+        output: { description: Step output (JSON) }
+        error: { $ref: '#/components/schemas/TaskError' }
+
+    Workflow:
+      type: object
+      required: [id, name, steps, status, context, created_at]
+      properties:
+        id: { type: string }
+        trace_id: { type: string }
+        name: { type: string }
+        steps:
+          type: array
+          items: { $ref: '#/components/schemas/WorkflowStep' }
+        status:
+          type: string
+          enum: [pending, running, completed, failed, aborted]
+        context: { $ref: '#/components/schemas/TaskContext' }
+        created_at: { type: string, format: date-time }
+        done_at: { type: string, format: date-time }
+
+    WorkflowRequest:
+      type: object
+      required: [name, steps]
+      properties:
+        name: { type: string }
+        steps:
+          type: array
+          items: { $ref: '#/components/schemas/WorkflowStep' }
+        context: { $ref: '#/components/schemas/TaskContext' }
+
+    CreateTeamRequest:
+      type: object
+      required: [name, org_id]
+      properties:
+        name: { type: string, maxLength: 255 }
+        org_id: { type: string }
+        daily_budget: { type: number, format: double }
+
+    Team:
+      type: object
+      required: [id, name, org_id, daily_budget]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        org_id: { type: string }
+        workers:
+          type: array
+          items: { type: string }
+        daily_budget: { type: number, format: double }
+        approval_required: { type: boolean }
+
+    KnowledgeEntry:
+      type: object
+      required: [id, title, content, scope, scope_id, created_at, updated_at]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        content: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        scope: { type: string, enum: [org, team, worker] }
+        scope_id: { type: string }
+        created_by: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    AddKnowledgeRequest:
+      type: object
+      required: [title, content, scope, scope_id]
+      properties:
+        title: { type: string }
+        content: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        scope: { type: string, enum: [org, team, worker] }
+        scope_id: { type: string }
+        created_by: { type: string }
+
+    AddEmbeddingRequest:
+      type: object
+      required: [vector]
+      properties:
+        vector:
+          type: array
+          items: { type: number, format: float }
+        metadata:
+          type: object
+          additionalProperties: true
+
+    SemanticSearchRequest:
+      type: object
+      required: [query_vector]
+      properties:
+        query_vector:
+          type: array
+          items: { type: number, format: float }
+        top_k: { type: integer, minimum: 1, default: 10 }
+
+    CreateTokenRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 255 }
+        expires_in_hours: { type: integer, minimum: 0, description: "0 = never expires" }
+
+    CreateTokenResponse:
+      type: object
+      required: [token, id, org_id, name, created_at]
+      properties:
+        token: { type: string, description: "Raw token (mct_…) — shown only once" }
+        id: { type: string }
+        org_id: { type: string }
+        name: { type: string }
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+
+    RevokeTokenResponse:
+      type: object
+      required: [status, token_id, revoked_at]
+      properties:
+        status: { type: string, enum: [revoked] }
+        token_id: { type: string }
+        revoked_at: { type: string, format: date-time }
+
+    WorkerToken:
+      type: object
+      required: [id, org_id, name, created_at]
+      properties:
+        id: { type: string }
+        org_id: { type: string }
+        worker_id: { type: string }
+        name: { type: string }
+        expires_at: { type: string, format: date-time }
+        revoked_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+
+    AuditEntry:
+      type: object
+      required: [id, timestamp, org_id, action, resource, outcome]
+      properties:
+        id: { type: string }
+        timestamp: { type: string, format: date-time }
+        org_id: { type: string }
+        worker_id: { type: string }
+        action: { type: string }
+        resource: { type: string }
+        detail:
+          type: object
+          additionalProperties: true
+        request_id: { type: string }
+        outcome: { type: string }
+
+    AuditPage:
+      type: object
+      required: [entries, total, limit, offset]
+      properties:
+        entries:
+          type: array
+          items: { $ref: '#/components/schemas/AuditEntry' }
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
+
+    CreateWebhookRequest:
+      type: object
+      required: [url, events]
+      properties:
+        url: { type: string, format: uri }
+        events:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            description: |
+              One of: task.dispatched, task.completed, task.failed, task.cancelled,
+              worker.registered, worker.deregistered, worker.heartbeat,
+              workflow.completed, workflow.failed, workflow.started,
+              cost.recorded, budget.threshold, budget.exceeded,
+              knowledge.added, knowledge.deleted, knowledge.queried
+        secret: { type: string, description: "HMAC-SHA256 signing key (write-only)" }
+
+    Webhook:
+      type: object
+      required: [id, org_id, url, events, active, created_at]
+      properties:
+        id: { type: string }
+        org_id: { type: string }
+        url: { type: string, format: uri }
+        events:
+          type: array
+          items: { type: string }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    WebhookDelivery:
+      type: object
+      required: [id, webhook_id, event_type, payload, status, attempts, created_at, updated_at]
+      properties:
+        id: { type: string }
+        webhook_id: { type: string }
+        event_type: { type: string }
+        payload: { type: string, description: JSON-encoded event body }
+        status:
+          type: string
+          enum: [pending, delivered, failed, dead]
+        attempts: { type: integer }
+        next_retry: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    CreateRoleBindingRequest:
+      type: object
+      required: [subject, role]
+      properties:
+        subject: { type: string, description: API key hash, user ID, or token ID }
+        role: { type: string, enum: [owner, admin, viewer] }
+
+    RoleBinding:
+      type: object
+      required: [id, org_id, subject, role, created_at]
+      properties:
+        id: { type: string }
+        org_id: { type: string }
+        subject: { type: string }
+        role: { type: string, enum: [owner, admin, viewer] }
+        created_at: { type: string, format: date-time }
+
+    PolicyRule:
+      type: object
+      required: [name, effect, value]
+      properties:
+        name:
+          type: string
+          description: Rule name, e.g. allowed_capabilities, max_cost_per_task
+        effect:
+          type: string
+          enum: [hard, soft]
+        value:
+          description: "[]string for whitelist, number for limits"
+
+    Policy:
+      type: object
+      required: [id, org_id, name, rules, enabled, created_at]
+      properties:
+        id: { type: string }
+        org_id: { type: string }
+        name: { type: string }
+        rules:
+          type: array
+          items: { $ref: '#/components/schemas/PolicyRule' }
+        enabled: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    CreatePolicyRequest:
+      type: object
+      required: [name, rules]
+      properties:
+        name: { type: string }
+        rules:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/PolicyRule' }
+        enabled: { type: boolean, default: false }
+
+    UpdatePolicyRequest:
+      type: object
+      properties:
+        name: { type: string }
+        rules:
+          type: array
+          items: { $ref: '#/components/schemas/PolicyRule' }
+        enabled: { type: boolean }
+
+    DLQEntry:
+      type: object
+      required: [id, task_id, task_type, worker_id, error, retries, created_at]
+      properties:
+        id: { type: string }
+        task_id: { type: string }
+        task_type: { type: string }
+        worker_id: { type: string }
+        error: { type: string }
+        retries: { type: integer }
+        created_at: { type: string, format: date-time }
+
+    ChatMessage:
+      type: object
+      required: [role, content]
+      properties:
+        role: { type: string, enum: [system, user, assistant] }
+        content: { type: string }
+
+    ChatRequest:
+      type: object
+      required: [messages]
+      properties:
+        model: { type: string, description: Specific model ID, or empty for auto-route }
+        messages:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/ChatMessage' }
+        strategy:
+          type: string
+          enum: [cheapest, fastest, best]
+        max_tokens: { type: integer, minimum: 1 }
+
+    ChatUsage:
+      type: object
+      required: [prompt_tokens, completion_tokens, total_tokens]
+      properties:
+        prompt_tokens: { type: integer }
+        completion_tokens: { type: integer }
+        total_tokens: { type: integer }
+
+    ChatResponse:
+      type: object
+      required: [id, model, provider, content, usage, cost, latency_ms]
+      properties:
+        id: { type: string }
+        model: { type: string }
+        provider: { type: string }
+        content: { type: string }
+        usage: { $ref: '#/components/schemas/ChatUsage' }
+        cost: { type: number, format: double }
+        latency_ms: { type: integer, format: int64 }
+
+    ModelInfo:
+      type: object
+      required: [id, provider]
+      properties:
+        id: { type: string }
+        provider: { type: string }
+        input_cost_per_1k: { type: number, format: double }
+        output_cost_per_1k: { type: number, format: double }
+        max_context: { type: integer }
+        quality: { type: integer, minimum: 1, maximum: 100 }
+        speed: { type: integer, minimum: 1, maximum: 100 }
+
+    PromptTemplate:
+      type: object
+      required: [id, name, version, content, created_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        version: { type: integer }
+        content: { type: string }
+        metadata:
+          type: object
+          additionalProperties: { type: string }
+        created_at: { type: string, format: date-time }
+
+    AddPromptRequest:
+      type: object
+      required: [name, content]
+      properties:
+        name: { type: string }
+        content: { type: string }
+        metadata:
+          type: object
+          additionalProperties: { type: string }
+
+    RenderPromptRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        vars:
+          type: object
+          additionalProperties: { type: string }
+
+    RenderPromptResponse:
+      type: object
+      required: [template, rendered]
+      properties:
+        template: { $ref: '#/components/schemas/PromptTemplate' }
+        rendered: { type: string }
+
+    MemoryTurn:
+      type: object
+      required: [session_id, role, content, timestamp]
+      properties:
+        session_id: { type: string }
+        role: { type: string, enum: [system, user, assistant] }
+        content: { type: string }
+        timestamp: { type: string, format: date-time }
+
+    AddMemoryTurnRequest:
+      type: object
+      required: [session_id, role, content]
+      properties:
+        session_id: { type: string }
+        agent_id: { type: string }
+        role: { type: string, enum: [system, user, assistant] }
+        content: { type: string }
+
+    VectorEntry:
+      type: object
+      required: [id, agent_id, content]
+      properties:
+        id: { type: string }
+        agent_id: { type: string }
+        content: { type: string }
+        embedding:
+          type: array
+          items: { type: number, format: float }
+        metadata:
+          type: object
+          additionalProperties: { type: string }
+        score: { type: number, format: double }

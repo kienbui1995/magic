@@ -81,7 +81,7 @@ func (g *Gateway) handleAddPrompt(w http.ResponseWriter, r *http.Request) {
 	}
 	tmpl := g.deps.Prompts.Add(req.Name, req.Content, req.Metadata)
 	// Persist to store
-	g.deps.Store.AddPrompt(&protocol.PromptTemplate{
+	g.deps.Store.AddPrompt(r.Context(), &protocol.PromptTemplate{
 		ID: tmpl.ID, Name: tmpl.Name, Version: tmpl.Version,
 		Content: tmpl.Content, Metadata: tmpl.Metadata, CreatedAt: tmpl.CreatedAt,
 	}) //nolint:errcheck
@@ -150,7 +150,7 @@ func (g *Gateway) handleAddTurn(w http.ResponseWriter, r *http.Request) {
 	g.deps.Memory.GetOrCreateSession(req.SessionID, req.AgentID, 50)
 	g.deps.Memory.AddTurn(req.SessionID, memory.Turn{Role: req.Role, Content: req.Content})
 	// Persist to store
-	g.deps.Store.AddMemoryTurn(req.SessionID, &protocol.MemoryTurn{
+	g.deps.Store.AddMemoryTurn(r.Context(), req.SessionID, &protocol.MemoryTurn{
 		SessionID: req.SessionID, Role: req.Role, Content: req.Content, Timestamp: time.Now().UTC(),
 	}) //nolint:errcheck
 	g.deps.Bus.Publish(events.Event{

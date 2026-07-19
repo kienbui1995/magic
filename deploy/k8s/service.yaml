@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: magic
+  namespace: magic
+  labels:
+    app.kubernetes.io/name: magic
+    app.kubernetes.io/part-of: magic
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: magic
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

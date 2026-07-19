@@ -1,0 +1,158 @@
+# Standalone observability stack for MagiC.
+# Run from repo root: docker compose -f deploy/docker-compose.observability.yml up -d
+#
+# Ports:
+#   3000  Grafana (admin / ${GRAFANA_ADMIN_PASSWORD:-admin})
+#   9090  Prometheus
+#   9093  Alertmanager (optional — uncomment)
+#   16686 Jaeger UI — OTLP traces from MagiC (OTEL_EXPORTER_OTLP_ENDPOINT)
+#   4317  Jaeger OTLP gRPC
+#   4318  Jaeger OTLP HTTP
+#   8080  MagiC Gateway / Prometheus /metrics
+#   5432  PostgreSQL
+
+name: magic-obs
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: magic
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-magic}
+      POSTGRES_DB: magic
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U magic -d magic"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - magic-obs
+
+  magic:
+    image: ghcr.io/kienbui1995/magic:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      MAGIC_POSTGRES_URL: "postgres://magic:${POSTGRES_PASSWORD:-magic}@postgres:5432/magic?sslmode=disable"
+      MAGIC_POSTGRES_POOL_MIN: "2"
+      MAGIC_POSTGRES_POOL_MAX: "10"
+      MAGIC_API_KEY: ${MAGIC_API_KEY:-dev-key-change-me}
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
+      OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+      OTEL_SERVICE_NAME: "magic"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - magic-obs
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --web.enable-lifecycle
+      - --web.enable-admin-api
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yaml:/etc/prometheus/alerts.yaml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      magic:
+        condition: service_started
+    networks:
+      - magic-obs
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_INSTALL_PLUGINS: ""
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    networks:
+      - magic-obs
+
+  # ---------------------------------------------------------------------------
+  # Optional: Alertmanager — uncomment to enable alert delivery (Slack/PagerDuty/email).
+  # Add a deploy/alertmanager/alertmanager.yml config and route it here.
+  # ---------------------------------------------------------------------------
+  # alertmanager:
+  #   image: prom/alertmanager:v0.27.0
+  #   restart: unless-stopped
+  #   command:
+  #     - --config.file=/etc/alertmanager/alertmanager.yml
+  #     - --storage.path=/alertmanager
+  #   volumes:
+  #     - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+  #     - alertmanager-data:/alertmanager
+  #   ports:
+  #     - "9093:9093"
+  #   networks:
+  #     - magic-obs
+
+  # ---------------------------------------------------------------------------
+  # Jaeger (all-in-one) — OTLP trace collector + UI. MagiC exports spans here
+  # via OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318.
+  # ---------------------------------------------------------------------------
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"    # UI
+      - "4317:4317"      # OTLP gRPC
+      - "4318:4318"      # OTLP HTTP
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:14269/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    networks:
+      - magic-obs
+
+volumes:
+  postgres-data:
+  prometheus-data:
+  grafana-data:
+  # alertmanager-data:
+
+networks:
+  magic-obs:
+    driver: bridge

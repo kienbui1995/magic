@@ -1,6 +1,7 @@
 package knowledge_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/kienbui1995/magic/core/internal/events"
@@ -13,7 +14,7 @@ func TestHub_Add(t *testing.T) {
 	bus := events.NewBus()
 	hub := knowledge.New(s, bus, nil)
 
-	entry, err := hub.Add("API Guidelines", "Use REST conventions", []string{"api", "rest"}, "org", "org_magic", "admin")
+	entry, err := hub.Add(context.Background(), "API Guidelines", "Use REST conventions", []string{"api", "rest"}, "org", "org_magic", "admin")
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -30,9 +31,9 @@ func TestHub_Get(t *testing.T) {
 	bus := events.NewBus()
 	hub := knowledge.New(s, bus, nil)
 
-	entry, _ := hub.Add("Test", "Content", nil, "org", "org_magic", "admin")
+	entry, _ := hub.Add(context.Background(), "Test", "Content", nil, "org", "org_magic", "admin")
 
-	got, err := hub.Get(entry.ID)
+	got, err := hub.Get(context.Background(), entry.ID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -46,15 +47,15 @@ func TestHub_Search(t *testing.T) {
 	bus := events.NewBus()
 	hub := knowledge.New(s, bus, nil)
 
-	hub.Add("API Guidelines", "REST conventions", []string{"api"}, "org", "org_magic", "admin")
-	hub.Add("Database Guide", "Use PostgreSQL", []string{"database"}, "org", "org_magic", "admin")
+	hub.Add(context.Background(), "API Guidelines", "REST conventions", []string{"api"}, "org", "org_magic", "admin")
+	hub.Add(context.Background(), "Database Guide", "Use PostgreSQL", []string{"database"}, "org", "org_magic", "admin")
 
-	results := hub.Search("API")
+	results := hub.Search(context.Background(), "API")
 	if len(results) != 1 {
 		t.Errorf("Search 'API': got %d, want 1", len(results))
 	}
 
-	results = hub.Search("database")
+	results = hub.Search(context.Background(), "database")
 	if len(results) != 1 {
 		t.Errorf("Search 'database': got %d, want 1", len(results))
 	}
@@ -65,14 +66,14 @@ func TestHub_Update(t *testing.T) {
 	bus := events.NewBus()
 	hub := knowledge.New(s, bus, nil)
 
-	entry, _ := hub.Add("Old Title", "Old content", nil, "org", "org_magic", "admin")
+	entry, _ := hub.Add(context.Background(), "Old Title", "Old content", nil, "org", "org_magic", "admin")
 
-	err := hub.Update(entry.ID, "New Title", "New content", []string{"updated"})
+	err := hub.Update(context.Background(), entry.ID, "New Title", "New content", []string{"updated"})
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
-	got, _ := hub.Get(entry.ID)
+	got, _ := hub.Get(context.Background(), entry.ID)
 	if got.Title != "New Title" {
 		t.Errorf("Title: got %q", got.Title)
 	}
@@ -86,14 +87,14 @@ func TestHub_Delete(t *testing.T) {
 	bus := events.NewBus()
 	hub := knowledge.New(s, bus, nil)
 
-	entry, _ := hub.Add("To Delete", "Content", nil, "org", "org_magic", "admin")
+	entry, _ := hub.Add(context.Background(), "To Delete", "Content", nil, "org", "org_magic", "admin")
 
-	err := hub.Delete(entry.ID)
+	err := hub.Delete(context.Background(), entry.ID)
 	if err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 
-	_, err = hub.Get(entry.ID)
+	_, err = hub.Get(context.Background(), entry.ID)
 	if err == nil {
 		t.Error("should fail after delete")
 	}
@@ -104,10 +105,10 @@ func TestHub_List(t *testing.T) {
 	bus := events.NewBus()
 	hub := knowledge.New(s, bus, nil)
 
-	hub.Add("Entry 1", "Content 1", nil, "org", "org_magic", "admin")
-	hub.Add("Entry 2", "Content 2", nil, "team", "team_marketing", "admin")
+	hub.Add(context.Background(), "Entry 1", "Content 1", nil, "org", "org_magic", "admin")
+	hub.Add(context.Background(), "Entry 2", "Content 2", nil, "team", "team_marketing", "admin")
 
-	entries := hub.List()
+	entries := hub.List(context.Background())
 	if len(entries) != 2 {
 		t.Errorf("List: got %d, want 2", len(entries))
 	}

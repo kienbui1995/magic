@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"context"
 	"time"
 
 	"github.com/kienbui1995/magic/core/internal/events"
@@ -33,7 +34,8 @@ func (l *Logger) Record(orgID, workerID, action, resource, requestID, outcome st
 		Detail:    detail,
 	}
 
-	_ = l.store.AppendAudit(entry)
+	// TODO(ctx): propagate from caller once audit API takes ctx.
+	_ = l.store.AppendAudit(context.TODO(), entry)
 
 	l.bus.Publish(events.Event{
 		Type:     "audit." + action,
@@ -53,7 +55,8 @@ func (l *Logger) Record(orgID, workerID, action, resource, requestID, outcome st
 
 // Query returns audit entries matching the filter.
 func (l *Logger) Query(filter store.AuditFilter) []*protocol.AuditEntry {
-	return l.store.QueryAudit(filter)
+	// TODO(ctx): propagate from caller once audit API takes ctx.
+	return l.store.QueryAudit(context.TODO(), filter)
 }
 
 // SubscribeToEvents subscribes to existing bus events and records them as audit entries.

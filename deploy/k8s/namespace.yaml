@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: magic
+  labels:
+    app.kubernetes.io/name: magic
+    app.kubernetes.io/part-of: magic

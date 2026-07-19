@@ -1,6 +1,7 @@
 package orchestrator_test
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -49,7 +50,7 @@ func TestOrchestrator_SubmitWorkflow(t *testing.T) {
 		t.Errorf("Status: got %q, want running", wf.Status)
 	}
 
-	got, err := s.GetWorkflow(wf.ID)
+	got, err := s.GetWorkflow(context.Background(), wf.ID)
 	if err != nil {
 		t.Fatalf("GetWorkflow: %v", err)
 	}
@@ -79,7 +80,7 @@ func TestOrchestrator_CompleteStep(t *testing.T) {
 		{ID: "content", TaskType: "content_writing", DependsOn: []string{"research"}, Input: json.RawMessage(`{}`)},
 	}, protocol.TaskContext{})
 
-	got, _ := s.GetWorkflow(wf.ID)
+	got, _ := s.GetWorkflow(context.Background(), wf.ID)
 	researchTaskID := got.Steps[0].TaskID
 
 	err := orch.CompleteStep(wf.ID, researchTaskID, json.RawMessage(`{"data": "results"}`))
@@ -89,7 +90,7 @@ func TestOrchestrator_CompleteStep(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	got, _ = s.GetWorkflow(wf.ID)
+	got, _ = s.GetWorkflow(context.Background(), wf.ID)
 	if got.Steps[0].Status != protocol.StepCompleted {
 		t.Errorf("research status: got %q", got.Steps[0].Status)
 	}
@@ -105,13 +106,13 @@ func TestOrchestrator_WorkflowCompletion(t *testing.T) {
 		{ID: "only", TaskType: "market_research", Input: json.RawMessage(`{}`)},
 	}, protocol.TaskContext{})
 
-	got, _ := s.GetWorkflow(wf.ID)
+	got, _ := s.GetWorkflow(context.Background(), wf.ID)
 	taskID := got.Steps[0].TaskID
 
 	orch.CompleteStep(wf.ID, taskID, json.RawMessage(`{"done": true}`))
 	time.Sleep(50 * time.Millisecond)
 
-	got, _ = s.GetWorkflow(wf.ID)
+	got, _ = s.GetWorkflow(context.Background(), wf.ID)
 	if got.Status != protocol.WorkflowCompleted {
 		t.Errorf("workflow status: got %q, want completed", got.Status)
 	}
@@ -125,18 +126,18 @@ func TestOrchestrator_FailStepSkip(t *testing.T) {
 		{ID: "b", TaskType: "content_writing", DependsOn: []string{"a"}, OnFailure: "skip", Input: json.RawMessage(`{}`)},
 	}, protocol.TaskContext{})
 
-	got, _ := s.GetWorkflow(wf.ID)
+	got, _ := s.GetWorkflow(context.Background(), wf.ID)
 	taskIDA := got.Steps[0].TaskID
 
 	orch.CompleteStep(wf.ID, taskIDA, json.RawMessage(`{}`))
 	time.Sleep(100 * time.Millisecond)
 
-	got, _ = s.GetWorkflow(wf.ID)
+	got, _ = s.GetWorkflow(context.Background(), wf.ID)
 	taskIDB := got.Steps[1].TaskID
 	orch.FailStep(wf.ID, taskIDB, protocol.TaskError{Code: "err", Message: "failed"})
 	time.Sleep(50 * time.Millisecond)
 
-	got, _ = s.GetWorkflow(wf.ID)
+	got, _ = s.GetWorkflow(context.Background(), wf.ID)
 	if got.Steps[1].Status != protocol.StepSkipped {
 		t.Errorf("step B status: got %q, want skipped", got.Steps[1].Status)
 	}
@@ -153,7 +154,7 @@ func TestOrchestrator_StepOutputFlowsToNext(t *testing.T) {
 		{ID: "step2", TaskType: "content_writing", DependsOn: []string{"step1"}, Input: json.RawMessage(`{"tone": "formal"}`)},
 	}, protocol.TaskContext{})
 
-	got, _ := s.GetWorkflow(wf.ID)
+	got, _ := s.GetWorkflow(context.Background(), wf.ID)
 	task1ID := got.Steps[0].TaskID
 
 	// Complete step1 with output
@@ -161,13 +162,13 @@ func TestOrchestrator_StepOutputFlowsToNext(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Check step2's task has merged input with _deps
-	got, _ = s.GetWorkflow(wf.ID)
+	got, _ = s.GetWorkflow(context.Background(), wf.ID)
 	task2ID := got.Steps[1].TaskID
 	if task2ID == "" {
 		t.Fatal("step2 should have been dispatched")
 	}
 
-	task2, _ := s.GetTask(task2ID)
+	task2, _ := s.GetTask(context.Background(), task2ID)
 	var input map[string]any
 	json.Unmarshal(task2.Input, &input)
 
@@ -188,12 +189,12 @@ func TestOrchestrator_ApprovalGate(t *testing.T) {
 	}, protocol.TaskContext{})
 
 	// Complete auto step
-	got, _ := s.GetWorkflow(wf.ID)
+	got, _ := s.GetWorkflow(context.Background(), wf.ID)
 	orch.CompleteStep(wf.ID, got.Steps[0].TaskID, json.RawMessage(`{}`))
 	time.Sleep(100 * time.Millisecond)
 
 	// manual step should be awaiting approval, not running
-	got, _ = s.GetWorkflow(wf.ID)
+	got, _ = s.GetWorkflow(context.Background(), wf.ID)
 	if got.Steps[1].Status != protocol.StepAwaitApproval {
 		t.Errorf("step status: got %q, want awaiting_approval", got.Steps[1].Status)
 	}
@@ -206,7 +207,7 @@ func TestOrchestrator_ApprovalGate(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Now it should be running
-	got, _ = s.GetWorkflow(wf.ID)
+	got, _ = s.GetWorkflow(context.Background(), wf.ID)
 	if got.Steps[1].Status != protocol.StepRunning {
 		t.Errorf("step status after approval: got %q, want running", got.Steps[1].Status)
 	}
@@ -225,7 +226,7 @@ func TestOrchestrator_CancelWorkflow(t *testing.T) {
 		t.Fatalf("CancelWorkflow: %v", err)
 	}
 
-	got, _ := s.GetWorkflow(wf.ID)
+	got, _ := s.GetWorkflow(context.Background(), wf.ID)
 	if got.Status != protocol.WorkflowAborted {
 		t.Errorf("status: got %q, want aborted", got.Status)
 	}

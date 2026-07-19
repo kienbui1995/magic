@@ -23,7 +23,18 @@ const (
 	TaskInProgress = "in_progress"
 	TaskCompleted  = "completed"
 	TaskFailed     = "failed"
+	TaskCancelled  = "cancelled"
 )
+
+// IsTaskTerminal reports whether the given task status is a terminal state
+// (no further transitions are expected).
+func IsTaskTerminal(status string) bool {
+	switch status {
+	case TaskCompleted, TaskFailed, TaskCancelled:
+		return true
+	}
+	return false
+}
 
 // Task priorities
 const (
@@ -417,6 +428,7 @@ type Webhook struct {
 type WebhookDelivery struct {
 	ID        string     `json:"id"`
 	WebhookID string     `json:"webhook_id"`
+	OrgID     string     `json:"org_id"`           // populated from parent webhook for RLS
 	EventType string     `json:"event_type"`
 	Payload   string     `json:"payload"`          // JSON-encoded event body
 	Status    string     `json:"status"`           // pending|delivered|failed|dead

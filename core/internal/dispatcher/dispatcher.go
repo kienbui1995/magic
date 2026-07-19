@@ -105,12 +105,12 @@ func (d *Dispatcher) Dispatch(ctx context.Context, task *protocol.Task, worker *
 
 	// Check circuit breaker
 	if d.isCircuitOpen(worker.ID) {
-		d.handleFailure(task, worker, "circuit breaker open: worker has too many recent failures")
+		d.handleFailure(ctx, task, worker, "circuit breaker open: worker has too many recent failures")
 		return fmt.Errorf("circuit breaker open for worker %s", worker.ID)
 	}
 
 	if err := validateEndpointURL(worker.Endpoint.URL); err != nil {
-		d.handleFailure(task, worker, fmt.Sprintf("invalid endpoint: %v", err))
+		d.handleFailure(ctx, task, worker, fmt.Sprintf("invalid endpoint: %v", err))
 		return err
 	}
 
@@ -138,7 +138,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, task *protocol.Task, worker *
 	}
 
 	task.Status = protocol.TaskInProgress
-	d.store.UpdateTask(task) //nolint:errcheck
+	d.store.UpdateTask(ctx, task) //nolint:errcheck
 
 	d.bus.Publish(events.Event{
 		Type:   "task.dispatched",
@@ -156,7 +156,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, task *protocol.Task, worker *
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
-				d.handleFailure(task, worker, fmt.Sprintf("context cancelled: %v", ctx.Err()))
+				d.handleFailure(ctx, task, worker, fmt.Sprintf("context cancelled: %v", ctx.Err()))
 				d.recordFailure(worker.ID)
 				return ctx.Err()
 			case <-time.After(time.Duration(attempt) * time.Second):
@@ -171,9 +171,9 @@ func (d *Dispatcher) Dispatch(ctx context.Context, task *protocol.Task, worker *
 	}
 
 	// All retries failed — move to DLQ
-	d.handleFailure(task, worker, fmt.Sprintf("failed after %d retries: %v", maxRetries+1, lastErr))
+	d.handleFailure(ctx, task, worker, fmt.Sprintf("failed after %d retries: %v", maxRetries+1, lastErr))
 	d.recordFailure(worker.ID)
-	d.moveToDLQ(task, worker, maxRetries+1)
+	d.moveToDLQ(ctx, task, worker, maxRetries+1)
 	return lastErr
 }
 
@@ -205,24 +205,24 @@ func (d *Dispatcher) tryDispatch(ctx context.Context, body []byte, task *protoco
 
 	switch dispResp.Type {
 	case protocol.MsgTaskComplete:
-		return d.handleComplete(task, worker, dispResp.Payload)
+		return d.handleComplete(ctx, task, worker, dispResp.Payload)
 	case protocol.MsgTaskFail:
 		var fp failPayload
 		if err := json.Unmarshal(dispResp.Payload, &fp); err != nil {
-			d.handleFailure(task, worker, fmt.Sprintf("invalid fail payload: %v", err))
+			d.handleFailure(ctx, task, worker, fmt.Sprintf("invalid fail payload: %v", err))
 			return nil
 		}
-		d.handleFailure(task, worker, fp.Error.Message)
+		d.handleFailure(ctx, task, worker, fp.Error.Message)
 		return nil // worker explicitly failed, don't retry
 	default:
 		return fmt.Errorf("unexpected response type: %s", dispResp.Type)
 	}
 }
 
-func (d *Dispatcher) handleComplete(task *protocol.Task, worker *protocol.Worker, payload json.RawMessage) error {
+func (d *Dispatcher) handleComplete(ctx context.Context, task *protocol.Task, worker *protocol.Worker, payload json.RawMessage) error {
 	var cp completePayload
 	if err := json.Unmarshal(payload, &cp); err != nil {
-		d.handleFailure(task, worker, fmt.Sprintf("invalid complete payload: %v", err))
+		d.handleFailure(ctx, task, worker, fmt.Sprintf("invalid complete payload: %v", err))
 		return err
 	}
 
@@ -238,7 +238,7 @@ func (d *Dispatcher) handleComplete(task *protocol.Task, worker *protocol.Worker
 			task.Error = &protocol.TaskError{Code: "evaluation_failed", Message: fmt.Sprintf("output validation failed: %v", result.Errors)}
 			now := time.Now()
 			task.CompletedAt = &now
-			d.store.UpdateTask(task) //nolint:errcheck
+			d.store.UpdateTask(ctx, task) //nolint:errcheck
 			return fmt.Errorf("evaluation failed")
 		}
 	}
@@ -246,11 +246,11 @@ func (d *Dispatcher) handleComplete(task *protocol.Task, worker *protocol.Worker
 	task.Status = protocol.TaskCompleted
 	now := time.Now()
 	task.CompletedAt = &now
-	d.store.UpdateTask(task) //nolint:errcheck
+	d.store.UpdateTask(ctx, task) //nolint:errcheck
 
 	// Track cost
 	if d.costCtrl != nil && cp.Cost > 0 {
-		d.costCtrl.RecordCost(worker.ID, task.ID, cp.Cost)
+		d.costCtrl.RecordCostCtx(ctx, worker.ID, task.ID, cp.Cost)
 	}
 
 	// Update worker load
@@ -258,33 +258,36 @@ func (d *Dispatcher) handleComplete(task *protocol.Task, worker *protocol.Worker
 	if worker.CurrentLoad < 0 {
 		worker.CurrentLoad = 0
 	}
-	d.store.UpdateWorker(worker) //nolint:errcheck
+	d.store.UpdateWorker(ctx, worker) //nolint:errcheck
 
+	durationMs := float64(now.Sub(task.CreatedAt).Milliseconds())
 	d.bus.Publish(events.Event{
 		Type:   "task.completed",
 		Source: "dispatcher",
 		Payload: map[string]any{
-			"task_id":   task.ID,
-			"worker_id": worker.ID,
-			"cost":      cp.Cost,
+			"task_id":     task.ID,
+			"worker_id":   worker.ID,
+			"task_type":   task.Type,
+			"cost":        cp.Cost,
+			"duration_ms": durationMs,
 		},
 	})
 
 	return nil
 }
 
-func (d *Dispatcher) handleFailure(task *protocol.Task, worker *protocol.Worker, reason string) {
+func (d *Dispatcher) handleFailure(ctx context.Context, task *protocol.Task, worker *protocol.Worker, reason string) {
 	task.Status = protocol.TaskFailed
 	task.Error = &protocol.TaskError{Code: "dispatch_error", Message: reason}
 	now := time.Now()
 	task.CompletedAt = &now
-	d.store.UpdateTask(task) //nolint:errcheck
+	d.store.UpdateTask(ctx, task) //nolint:errcheck
 
 	worker.CurrentLoad--
 	if worker.CurrentLoad < 0 {
 		worker.CurrentLoad = 0
 	}
-	d.store.UpdateWorker(worker) //nolint:errcheck
+	d.store.UpdateWorker(ctx, worker) //nolint:errcheck
 
 	d.bus.Publish(events.Event{
 		Type:     "task.failed",
@@ -293,6 +296,7 @@ func (d *Dispatcher) handleFailure(task *protocol.Task, worker *protocol.Worker,
 		Payload: map[string]any{
 			"task_id":   task.ID,
 			"worker_id": worker.ID,
+			"task_type": task.Type,
 			"reason":    reason,
 		},
 	})
@@ -335,7 +339,7 @@ func (d *Dispatcher) recordFailure(workerID string) {
 	}
 }
 
-func (d *Dispatcher) moveToDLQ(task *protocol.Task, worker *protocol.Worker, retries int) {
+func (d *Dispatcher) moveToDLQ(ctx context.Context, task *protocol.Task, worker *protocol.Worker, retries int) {
 	errMsg := ""
 	if task.Error != nil {
 		errMsg = task.Error.Message
@@ -349,7 +353,7 @@ func (d *Dispatcher) moveToDLQ(task *protocol.Task, worker *protocol.Worker, ret
 		Retries:   retries,
 		CreatedAt: time.Now().UTC(),
 	}
-	d.store.AddDLQEntry(entry) //nolint:errcheck
+	d.store.AddDLQEntry(ctx, entry) //nolint:errcheck
 	d.bus.Publish(events.Event{
 		Type:     "task.dlq",
 		Source:   "dispatcher",
@@ -371,7 +375,7 @@ func (d *Dispatcher) moveToDLQ(task *protocol.Task, worker *protocol.Worker, ret
 // calling DispatchStream. w must implement http.Flusher.
 func (d *Dispatcher) DispatchStream(ctx context.Context, task *protocol.Task, worker *protocol.Worker, w http.ResponseWriter) error {
 	if err := validateEndpointURL(worker.Endpoint.URL); err != nil {
-		d.handleFailure(task, worker, fmt.Sprintf("invalid endpoint: %v", err))
+		d.handleFailure(ctx, task, worker, fmt.Sprintf("invalid endpoint: %v", err))
 		return err
 	}
 
@@ -391,12 +395,12 @@ func (d *Dispatcher) DispatchStream(ctx context.Context, task *protocol.Task, wo
 	}
 
 	task.Status = protocol.TaskInProgress
-	d.store.UpdateTask(task) //nolint:errcheck
+	d.store.UpdateTask(ctx, task) //nolint:errcheck
 
 	// POST to worker's streaming endpoint
 	req, err := http.NewRequestWithContext(ctx, "POST", worker.Endpoint.URL, bytes.NewReader(body))
 	if err != nil {
-		d.handleFailure(task, worker, err.Error())
+		d.handleFailure(ctx, task, worker, err.Error())
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -407,13 +411,13 @@ func (d *Dispatcher) DispatchStream(ctx context.Context, task *protocol.Task, wo
 
 	resp, err := d.streamClient.Do(req)
 	if err != nil {
-		d.handleFailure(task, worker, err.Error())
+		d.handleFailure(ctx, task, worker, err.Error())
 		return fmt.Errorf("worker request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		d.handleFailure(task, worker, fmt.Sprintf("worker returned status %d", resp.StatusCode))
+		d.handleFailure(ctx, task, worker, fmt.Sprintf("worker returned status %d", resp.StatusCode))
 		return fmt.Errorf("worker returned status %d", resp.StatusCode)
 	}
 
@@ -440,15 +444,17 @@ func (d *Dispatcher) DispatchStream(ctx context.Context, task *protocol.Task, wo
 	task.Status = protocol.TaskCompleted
 	now := time.Now()
 	task.CompletedAt = &now
-	d.store.UpdateTask(task) //nolint:errcheck
+	d.store.UpdateTask(ctx, task) //nolint:errcheck
 
+	durationMs := float64(now.Sub(task.CreatedAt).Milliseconds())
 	d.bus.Publish(events.Event{
 		Type:   "task.completed",
 		Source: "dispatcher",
 		Payload: map[string]any{
-			"task_id":   task.ID,
-			"worker_id": worker.ID,
-			"task_type": task.Type,
+			"task_id":     task.ID,
+			"worker_id":   worker.ID,
+			"task_type":   task.Type,
+			"duration_ms": durationMs,
 		},
 	})
 	return nil

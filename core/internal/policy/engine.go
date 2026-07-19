@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/kienbui1995/magic/core/internal/events"
@@ -41,7 +42,8 @@ func (e *Engine) Enforce(task *protocol.Task) Result {
 		return Result{Allowed: true} // dev mode
 	}
 
-	policies := e.store.ListPoliciesByOrg(orgID)
+	// TODO(ctx): propagate from caller once policy API takes ctx.
+	policies := e.store.ListPoliciesByOrg(context.TODO(), orgID)
 	var result Result
 	result.Allowed = true
 

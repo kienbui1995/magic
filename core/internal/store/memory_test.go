@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -21,11 +22,11 @@ func TestMemoryStore_Workers(t *testing.T) {
 		},
 	}
 
-	if err := s.AddWorker(w); err != nil {
+	if err := s.AddWorker(context.Background(), w); err != nil {
 		t.Fatalf("AddWorker: %v", err)
 	}
 
-	got, err := s.GetWorker("worker_001")
+	got, err := s.GetWorker(context.Background(), "worker_001")
 	if err != nil {
 		t.Fatalf("GetWorker: %v", err)
 	}
@@ -33,25 +34,25 @@ func TestMemoryStore_Workers(t *testing.T) {
 		t.Errorf("Name: got %q, want TestBot", got.Name)
 	}
 
-	workers := s.ListWorkers()
+	workers := s.ListWorkers(context.Background())
 	if len(workers) != 1 {
 		t.Errorf("ListWorkers: got %d, want 1", len(workers))
 	}
 
-	found := s.FindWorkersByCapability("greeting")
+	found := s.FindWorkersByCapability(context.Background(), "greeting")
 	if len(found) != 1 {
 		t.Errorf("FindByCapability: got %d, want 1", len(found))
 	}
 
-	found = s.FindWorkersByCapability("nonexistent")
+	found = s.FindWorkersByCapability(context.Background(), "nonexistent")
 	if len(found) != 0 {
 		t.Errorf("FindByCapability nonexistent: got %d, want 0", len(found))
 	}
 
-	if err := s.RemoveWorker("worker_001"); err != nil {
+	if err := s.RemoveWorker(context.Background(), "worker_001"); err != nil {
 		t.Fatalf("RemoveWorker: %v", err)
 	}
-	if _, err := s.GetWorker("worker_001"); err == nil {
+	if _, err := s.GetWorker(context.Background(), "worker_001"); err == nil {
 		t.Error("GetWorker after remove should fail")
 	}
 }
@@ -65,11 +66,11 @@ func TestMemoryStore_Tasks(t *testing.T) {
 		Status: protocol.TaskPending,
 	}
 
-	if err := s.AddTask(task); err != nil {
+	if err := s.AddTask(context.Background(), task); err != nil {
 		t.Fatalf("AddTask: %v", err)
 	}
 
-	got, err := s.GetTask("task_001")
+	got, err := s.GetTask(context.Background(), "task_001")
 	if err != nil {
 		t.Fatalf("GetTask: %v", err)
 	}
@@ -78,11 +79,11 @@ func TestMemoryStore_Tasks(t *testing.T) {
 	}
 
 	task.Status = protocol.TaskCompleted
-	if err := s.UpdateTask(task); err != nil {
+	if err := s.UpdateTask(context.Background(), task); err != nil {
 		t.Fatalf("UpdateTask: %v", err)
 	}
 
-	got, _ = s.GetTask("task_001")
+	got, _ = s.GetTask(context.Background(), "task_001")
 	if got.Status != protocol.TaskCompleted {
 		t.Errorf("Status: got %q, want completed", got.Status)
 	}
@@ -92,10 +93,10 @@ func TestMemoryStore_Workflows(t *testing.T) {
 	s := store.NewMemoryStore()
 	wf := &protocol.Workflow{ID: "wf_001", Name: "Test Workflow", Status: protocol.WorkflowPending,
 		Steps: []protocol.WorkflowStep{{ID: "step1", TaskType: "greeting", Status: protocol.StepPending}}}
-	if err := s.AddWorkflow(wf); err != nil {
+	if err := s.AddWorkflow(context.Background(), wf); err != nil {
 		t.Fatalf("AddWorkflow: %v", err)
 	}
-	got, err := s.GetWorkflow("wf_001")
+	got, err := s.GetWorkflow(context.Background(), "wf_001")
 	if err != nil {
 		t.Fatalf("GetWorkflow: %v", err)
 	}
@@ -103,25 +104,25 @@ func TestMemoryStore_Workflows(t *testing.T) {
 		t.Errorf("Name: got %q", got.Name)
 	}
 	wf.Status = protocol.WorkflowRunning
-	if err := s.UpdateWorkflow(wf); err != nil {
+	if err := s.UpdateWorkflow(context.Background(), wf); err != nil {
 		t.Fatalf("UpdateWorkflow: %v", err)
 	}
-	got, _ = s.GetWorkflow("wf_001")
+	got, _ = s.GetWorkflow(context.Background(), "wf_001")
 	if got.Status != protocol.WorkflowRunning {
 		t.Errorf("Status: got %q", got.Status)
 	}
-	if len(s.ListWorkflows()) != 1 {
-		t.Errorf("ListWorkflows: got %d", len(s.ListWorkflows()))
+	if len(s.ListWorkflows(context.Background())) != 1 {
+		t.Errorf("ListWorkflows: got %d", len(s.ListWorkflows(context.Background())))
 	}
 }
 
 func TestMemoryStore_Teams(t *testing.T) {
 	s := store.NewMemoryStore()
 	team := &protocol.Team{ID: "team_001", Name: "Marketing", OrgID: "org_magic", DailyBudget: 10.0}
-	if err := s.AddTeam(team); err != nil {
+	if err := s.AddTeam(context.Background(), team); err != nil {
 		t.Fatalf("AddTeam: %v", err)
 	}
-	got, err := s.GetTeam("team_001")
+	got, err := s.GetTeam(context.Background(), "team_001")
 	if err != nil {
 		t.Fatalf("GetTeam: %v", err)
 	}
@@ -129,16 +130,16 @@ func TestMemoryStore_Teams(t *testing.T) {
 		t.Errorf("Name: got %q", got.Name)
 	}
 	team.Workers = []string{"worker_001"}
-	if err := s.UpdateTeam(team); err != nil {
+	if err := s.UpdateTeam(context.Background(), team); err != nil {
 		t.Fatalf("UpdateTeam: %v", err)
 	}
-	if len(s.ListTeams()) != 1 {
-		t.Errorf("ListTeams: got %d", len(s.ListTeams()))
+	if len(s.ListTeams(context.Background())) != 1 {
+		t.Errorf("ListTeams: got %d", len(s.ListTeams(context.Background())))
 	}
-	if err := s.RemoveTeam("team_001"); err != nil {
+	if err := s.RemoveTeam(context.Background(), "team_001"); err != nil {
 		t.Fatalf("RemoveTeam: %v", err)
 	}
-	if _, err := s.GetTeam("team_001"); err == nil {
+	if _, err := s.GetTeam(context.Background(), "team_001"); err == nil {
 		t.Error("should fail after remove")
 	}
 }
@@ -155,11 +156,11 @@ func TestMemoryStore_Knowledge(t *testing.T) {
 		ScopeID: "org_magic",
 	}
 
-	if err := s.AddKnowledge(entry); err != nil {
+	if err := s.AddKnowledge(context.Background(), entry); err != nil {
 		t.Fatalf("AddKnowledge: %v", err)
 	}
 
-	got, err := s.GetKnowledge("kb_001")
+	got, err := s.GetKnowledge(context.Background(), "kb_001")
 	if err != nil {
 		t.Fatalf("GetKnowledge: %v", err)
 	}
@@ -168,36 +169,36 @@ func TestMemoryStore_Knowledge(t *testing.T) {
 	}
 
 	entry.Content = "Updated content"
-	if err := s.UpdateKnowledge(entry); err != nil {
+	if err := s.UpdateKnowledge(context.Background(), entry); err != nil {
 		t.Fatalf("UpdateKnowledge: %v", err)
 	}
 
-	if len(s.ListKnowledge()) != 1 {
-		t.Errorf("ListKnowledge: got %d", len(s.ListKnowledge()))
+	if len(s.ListKnowledge(context.Background())) != 1 {
+		t.Errorf("ListKnowledge: got %d", len(s.ListKnowledge(context.Background())))
 	}
 
 	// Search by title substring
-	results := s.SearchKnowledge("API")
+	results := s.SearchKnowledge(context.Background(), "API")
 	if len(results) != 1 {
 		t.Errorf("SearchKnowledge 'API': got %d, want 1", len(results))
 	}
 
 	// Search by tag
-	results = s.SearchKnowledge("rest")
+	results = s.SearchKnowledge(context.Background(), "rest")
 	if len(results) != 1 {
 		t.Errorf("SearchKnowledge 'rest': got %d, want 1", len(results))
 	}
 
 	// Search no match
-	results = s.SearchKnowledge("nonexistent")
+	results = s.SearchKnowledge(context.Background(), "nonexistent")
 	if len(results) != 0 {
 		t.Errorf("SearchKnowledge 'nonexistent': got %d, want 0", len(results))
 	}
 
-	if err := s.DeleteKnowledge("kb_001"); err != nil {
+	if err := s.DeleteKnowledge(context.Background(), "kb_001"); err != nil {
 		t.Fatalf("DeleteKnowledge: %v", err)
 	}
-	if _, err := s.GetKnowledge("kb_001"); err == nil {
+	if _, err := s.GetKnowledge(context.Background(), "kb_001"); err == nil {
 		t.Error("should fail after delete")
 	}
 }
@@ -219,11 +220,11 @@ func TestAddWorkerToken(t *testing.T) {
 	s := store.NewMemoryStore()
 
 	tok := makeTestToken("token_001", "org_acme", "hash_abc")
-	if err := s.AddWorkerToken(tok); err != nil {
+	if err := s.AddWorkerToken(context.Background(), tok); err != nil {
 		t.Fatalf("AddWorkerToken: %v", err)
 	}
 
-	got, err := s.GetWorkerToken("token_001")
+	got, err := s.GetWorkerToken(context.Background(), "token_001")
 	if err != nil {
 		t.Fatalf("GetWorkerToken: %v", err)
 	}
@@ -239,11 +240,11 @@ func TestGetWorkerTokenByHash(t *testing.T) {
 	s := store.NewMemoryStore()
 
 	tok := makeTestToken("token_002", "org_beta", "hash_xyz")
-	if err := s.AddWorkerToken(tok); err != nil {
+	if err := s.AddWorkerToken(context.Background(), tok); err != nil {
 		t.Fatalf("AddWorkerToken: %v", err)
 	}
 
-	got, err := s.GetWorkerTokenByHash("hash_xyz")
+	got, err := s.GetWorkerTokenByHash(context.Background(), "hash_xyz")
 	if err != nil {
 		t.Fatalf("GetWorkerTokenByHash: %v", err)
 	}
@@ -252,7 +253,7 @@ func TestGetWorkerTokenByHash(t *testing.T) {
 	}
 
 	// Non-existent hash returns error
-	_, err = s.GetWorkerTokenByHash("hash_nonexistent")
+	_, err = s.GetWorkerTokenByHash(context.Background(), "hash_nonexistent")
 	if err == nil {
 		t.Error("expected error for non-existent hash, got nil")
 	}
@@ -262,7 +263,7 @@ func TestUpdateWorkerToken_CASRejection(t *testing.T) {
 	s := store.NewMemoryStore()
 
 	tok := makeTestToken("token_003", "org_acme", "hash_cas")
-	if err := s.AddWorkerToken(tok); err != nil {
+	if err := s.AddWorkerToken(context.Background(), tok); err != nil {
 		t.Fatalf("AddWorkerToken: %v", err)
 	}
 
@@ -276,14 +277,14 @@ func TestUpdateWorkerToken_CASRejection(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			// Read the token (simulating the concurrent read)
-			read, err := s.GetWorkerToken("token_003")
+			read, err := s.GetWorkerToken(context.Background(), "token_003")
 			if err != nil {
 				results[idx] = err
 				return
 			}
 			// Each goroutine tries to bind to a different worker
 			read.WorkerID = protocol.GenerateID("worker")
-			results[idx] = s.UpdateWorkerToken(read)
+			results[idx] = s.UpdateWorkerToken(context.Background(), read)
 		}(i)
 	}
 	wg.Wait()
@@ -311,17 +312,17 @@ func TestHasAnyWorkerTokens(t *testing.T) {
 	s := store.NewMemoryStore()
 
 	// Initially false
-	if s.HasAnyWorkerTokens() {
+	if s.HasAnyWorkerTokens(context.Background()) {
 		t.Error("HasAnyWorkerTokens should be false on empty store")
 	}
 
 	// After adding the first token, becomes true
 	tok := makeTestToken("token_has", "org_acme", "hash_has")
-	if err := s.AddWorkerToken(tok); err != nil {
+	if err := s.AddWorkerToken(context.Background(), tok); err != nil {
 		t.Fatalf("AddWorkerToken: %v", err)
 	}
 
-	if !s.HasAnyWorkerTokens() {
+	if !s.HasAnyWorkerTokens(context.Background()) {
 		t.Error("HasAnyWorkerTokens should be true after adding a token")
 	}
 }
@@ -329,22 +330,22 @@ func TestHasAnyWorkerTokens(t *testing.T) {
 func TestListWorkerTokensByOrg(t *testing.T) {
 	s := store.NewMemoryStore()
 
-	if err := s.AddWorkerToken(makeTestToken("tok_a1", "org_acme", "h_a1")); err != nil {
+	if err := s.AddWorkerToken(context.Background(), makeTestToken("tok_a1", "org_acme", "h_a1")); err != nil {
 		t.Fatalf("AddWorkerToken: %v", err)
 	}
-	if err := s.AddWorkerToken(makeTestToken("tok_a2", "org_acme", "h_a2")); err != nil {
+	if err := s.AddWorkerToken(context.Background(), makeTestToken("tok_a2", "org_acme", "h_a2")); err != nil {
 		t.Fatalf("AddWorkerToken: %v", err)
 	}
-	if err := s.AddWorkerToken(makeTestToken("tok_b1", "org_beta", "h_b1")); err != nil {
+	if err := s.AddWorkerToken(context.Background(), makeTestToken("tok_b1", "org_beta", "h_b1")); err != nil {
 		t.Fatalf("AddWorkerToken: %v", err)
 	}
 
-	acmeTokens := s.ListWorkerTokensByOrg("org_acme")
+	acmeTokens := s.ListWorkerTokensByOrg(context.Background(), "org_acme")
 	if len(acmeTokens) != 2 {
 		t.Errorf("ListWorkerTokensByOrg org_acme: got %d, want 2", len(acmeTokens))
 	}
 
-	betaTokens := s.ListWorkerTokensByOrg("org_beta")
+	betaTokens := s.ListWorkerTokensByOrg(context.Background(), "org_beta")
 	if len(betaTokens) != 1 {
 		t.Errorf("ListWorkerTokensByOrg org_beta: got %d, want 1", len(betaTokens))
 	}
@@ -355,15 +356,15 @@ func TestListWorkerTokensByWorker(t *testing.T) {
 
 	tok := makeTestToken("tok_w1", "org_acme", "h_w1")
 	tok.WorkerID = "worker_abc"
-	if err := s.AddWorkerToken(tok); err != nil {
+	if err := s.AddWorkerToken(context.Background(), tok); err != nil {
 		t.Fatalf("AddWorkerToken: %v", err)
 	}
 	// Unbound token for same org
-	if err := s.AddWorkerToken(makeTestToken("tok_w2", "org_acme", "h_w2")); err != nil {
+	if err := s.AddWorkerToken(context.Background(), makeTestToken("tok_w2", "org_acme", "h_w2")); err != nil {
 		t.Fatalf("AddWorkerToken: %v", err)
 	}
 
-	tokens := s.ListWorkerTokensByWorker("worker_abc")
+	tokens := s.ListWorkerTokensByWorker(context.Background(), "worker_abc")
 	if len(tokens) != 1 {
 		t.Errorf("ListWorkerTokensByWorker: got %d, want 1", len(tokens))
 	}
@@ -372,7 +373,7 @@ func TestListWorkerTokensByWorker(t *testing.T) {
 	}
 
 	// No tokens for unknown worker
-	tokens = s.ListWorkerTokensByWorker("worker_unknown")
+	tokens = s.ListWorkerTokensByWorker(context.Background(), "worker_unknown")
 	if len(tokens) != 0 {
 		t.Errorf("ListWorkerTokensByWorker unknown: got %d, want 0", len(tokens))
 	}
@@ -396,12 +397,12 @@ func TestAppendAudit(t *testing.T) {
 	s := store.NewMemoryStore()
 
 	entry := makeTestAuditEntry("audit_001", "org_acme", "worker_001", "worker.register", "success")
-	if err := s.AppendAudit(entry); err != nil {
+	if err := s.AppendAudit(context.Background(), entry); err != nil {
 		t.Fatalf("AppendAudit: %v", err)
 	}
 
 	// Query with no filter (empty OrgID matches all)
-	results := s.QueryAudit(store.AuditFilter{Limit: 10})
+	results := s.QueryAudit(context.Background(), store.AuditFilter{Limit: 10})
 	if len(results) != 1 {
 		t.Errorf("QueryAudit after append: got %d, want 1", len(results))
 	}
@@ -413,18 +414,18 @@ func TestAppendAudit(t *testing.T) {
 func TestQueryAudit_FilterByOrg(t *testing.T) {
 	s := store.NewMemoryStore()
 
-	if err := s.AppendAudit(makeTestAuditEntry("a1", "org_acme", "w1", "worker.register", "success")); err != nil {
+	if err := s.AppendAudit(context.Background(), makeTestAuditEntry("a1", "org_acme", "w1", "worker.register", "success")); err != nil {
 		t.Fatalf("AppendAudit: %v", err)
 	}
-	if err := s.AppendAudit(makeTestAuditEntry("a2", "org_beta", "w2", "worker.register", "success")); err != nil {
+	if err := s.AppendAudit(context.Background(), makeTestAuditEntry("a2", "org_beta", "w2", "worker.register", "success")); err != nil {
 		t.Fatalf("AppendAudit: %v", err)
 	}
-	if err := s.AppendAudit(makeTestAuditEntry("a3", "org_acme", "w3", "task.route", "success")); err != nil {
+	if err := s.AppendAudit(context.Background(), makeTestAuditEntry("a3", "org_acme", "w3", "task.route", "success")); err != nil {
 		t.Fatalf("AppendAudit: %v", err)
 	}
 
 	// Filter by org_acme
-	results := s.QueryAudit(store.AuditFilter{OrgID: "org_acme", Limit: 100})
+	results := s.QueryAudit(context.Background(), store.AuditFilter{OrgID: "org_acme", Limit: 100})
 	if len(results) != 2 {
 		t.Errorf("QueryAudit org_acme: got %d, want 2", len(results))
 	}
@@ -435,7 +436,7 @@ func TestQueryAudit_FilterByOrg(t *testing.T) {
 	}
 
 	// Filter by org_beta
-	results = s.QueryAudit(store.AuditFilter{OrgID: "org_beta", Limit: 100})
+	results = s.QueryAudit(context.Background(), store.AuditFilter{OrgID: "org_beta", Limit: 100})
 	if len(results) != 1 {
 		t.Errorf("QueryAudit org_beta: got %d, want 1", len(results))
 	}
@@ -444,17 +445,17 @@ func TestQueryAudit_FilterByOrg(t *testing.T) {
 func TestQueryAudit_FilterByWorker(t *testing.T) {
 	s := store.NewMemoryStore()
 
-	if err := s.AppendAudit(makeTestAuditEntry("a1", "org_acme", "worker_alice", "worker.register", "success")); err != nil {
+	if err := s.AppendAudit(context.Background(), makeTestAuditEntry("a1", "org_acme", "worker_alice", "worker.register", "success")); err != nil {
 		t.Fatalf("AppendAudit: %v", err)
 	}
-	if err := s.AppendAudit(makeTestAuditEntry("a2", "org_acme", "worker_bob", "worker.heartbeat", "success")); err != nil {
+	if err := s.AppendAudit(context.Background(), makeTestAuditEntry("a2", "org_acme", "worker_bob", "worker.heartbeat", "success")); err != nil {
 		t.Fatalf("AppendAudit: %v", err)
 	}
-	if err := s.AppendAudit(makeTestAuditEntry("a3", "org_acme", "worker_alice", "task.complete", "success")); err != nil {
+	if err := s.AppendAudit(context.Background(), makeTestAuditEntry("a3", "org_acme", "worker_alice", "task.complete", "success")); err != nil {
 		t.Fatalf("AppendAudit: %v", err)
 	}
 
-	results := s.QueryAudit(store.AuditFilter{OrgID: "org_acme", WorkerID: "worker_alice", Limit: 100})
+	results := s.QueryAudit(context.Background(), store.AuditFilter{OrgID: "org_acme", WorkerID: "worker_alice", Limit: 100})
 	if len(results) != 2 {
 		t.Errorf("QueryAudit by worker_alice: got %d, want 2", len(results))
 	}
@@ -475,20 +476,20 @@ func TestQueryAudit_TimeRange(t *testing.T) {
 	// Add entry 2 hours ago
 	old := makeTestAuditEntry("audit_old", "org_acme", "w1", "worker.register", "success")
 	old.Timestamp = past
-	if err := s.AppendAudit(old); err != nil {
+	if err := s.AppendAudit(context.Background(), old); err != nil {
 		t.Fatalf("AppendAudit old: %v", err)
 	}
 
 	// Add entry 30 minutes ago
 	mid := makeTestAuditEntry("audit_mid", "org_acme", "w2", "worker.heartbeat", "success")
 	mid.Timestamp = recent
-	if err := s.AppendAudit(mid); err != nil {
+	if err := s.AppendAudit(context.Background(), mid); err != nil {
 		t.Fatalf("AppendAudit mid: %v", err)
 	}
 
 	// Query: only entries after 1 hour ago
 	oneHourAgo := time.Now().Add(-1 * time.Hour)
-	results := s.QueryAudit(store.AuditFilter{StartTime: &oneHourAgo, Limit: 100})
+	results := s.QueryAudit(context.Background(), store.AuditFilter{StartTime: &oneHourAgo, Limit: 100})
 	if len(results) != 1 {
 		t.Errorf("QueryAudit StartTime: got %d, want 1", len(results))
 	}
@@ -497,13 +498,13 @@ func TestQueryAudit_TimeRange(t *testing.T) {
 	}
 
 	// Query: only entries before future (should return all)
-	results = s.QueryAudit(store.AuditFilter{EndTime: &future, Limit: 100})
+	results = s.QueryAudit(context.Background(), store.AuditFilter{EndTime: &future, Limit: 100})
 	if len(results) != 2 {
 		t.Errorf("QueryAudit EndTime future: got %d, want 2", len(results))
 	}
 
 	// Query: only entries before 1 hour ago
-	results = s.QueryAudit(store.AuditFilter{EndTime: &oneHourAgo, Limit: 100})
+	results = s.QueryAudit(context.Background(), store.AuditFilter{EndTime: &oneHourAgo, Limit: 100})
 	if len(results) != 1 {
 		t.Errorf("QueryAudit EndTime past: got %d, want 1", len(results))
 	}
@@ -526,19 +527,19 @@ func TestListWorkersByOrg(t *testing.T) {
 		Capabilities: []protocol.Capability{{Name: "writing"}}}
 
 	for _, w := range []*protocol.Worker{wA1, wA2, wB1} {
-		if err := s.AddWorker(w); err != nil {
+		if err := s.AddWorker(context.Background(), w); err != nil {
 			t.Fatalf("AddWorker %s: %v", w.ID, err)
 		}
 	}
 
 	// org_acme should have 2 workers
-	acmeWorkers := s.ListWorkersByOrg("org_acme")
+	acmeWorkers := s.ListWorkersByOrg(context.Background(), "org_acme")
 	if len(acmeWorkers) != 2 {
 		t.Errorf("ListWorkersByOrg org_acme: got %d, want 2", len(acmeWorkers))
 	}
 
 	// org_beta should have 1 worker
-	betaWorkers := s.ListWorkersByOrg("org_beta")
+	betaWorkers := s.ListWorkersByOrg(context.Background(), "org_beta")
 	if len(betaWorkers) != 1 {
 		t.Errorf("ListWorkersByOrg org_beta: got %d, want 1", len(betaWorkers))
 	}
@@ -554,7 +555,7 @@ func TestListWorkersByOrg(t *testing.T) {
 	}
 
 	// Empty orgID returns all (backward compat dev mode)
-	allWorkers := s.ListWorkersByOrg("")
+	allWorkers := s.ListWorkersByOrg(context.Background(), "")
 	if len(allWorkers) != 3 {
 		t.Errorf("ListWorkersByOrg empty: got %d, want 3", len(allWorkers))
 	}
@@ -575,13 +576,13 @@ func TestFindWorkersByCapabilityAndOrg(t *testing.T) {
 		Capabilities: []protocol.Capability{{Name: "writing"}}}
 
 	for _, w := range []*protocol.Worker{wA1, wA2, wB1, wA3} {
-		if err := s.AddWorker(w); err != nil {
+		if err := s.AddWorker(context.Background(), w); err != nil {
 			t.Fatalf("AddWorker %s: %v", w.ID, err)
 		}
 	}
 
 	// Find writing workers in org_acme: should return only wA1 (wA3 is offline)
-	result := s.FindWorkersByCapabilityAndOrg("writing", "org_acme")
+	result := s.FindWorkersByCapabilityAndOrg(context.Background(), "writing", "org_acme")
 	if len(result) != 1 {
 		t.Errorf("FindWorkersByCapabilityAndOrg writing org_acme: got %d, want 1", len(result))
 	}
@@ -590,7 +591,7 @@ func TestFindWorkersByCapabilityAndOrg(t *testing.T) {
 	}
 
 	// Find writing workers in org_beta: should return only wB1
-	result = s.FindWorkersByCapabilityAndOrg("writing", "org_beta")
+	result = s.FindWorkersByCapabilityAndOrg(context.Background(), "writing", "org_beta")
 	if len(result) != 1 {
 		t.Errorf("FindWorkersByCapabilityAndOrg writing org_beta: got %d, want 1", len(result))
 	}
@@ -599,13 +600,13 @@ func TestFindWorkersByCapabilityAndOrg(t *testing.T) {
 	}
 
 	// Find coding workers in org_beta: should return 0
-	result = s.FindWorkersByCapabilityAndOrg("coding", "org_beta")
+	result = s.FindWorkersByCapabilityAndOrg(context.Background(), "coding", "org_beta")
 	if len(result) != 0 {
 		t.Errorf("FindWorkersByCapabilityAndOrg coding org_beta: got %d, want 0", len(result))
 	}
 
 	// Empty orgID: find all active writers across orgs
-	result = s.FindWorkersByCapabilityAndOrg("writing", "")
+	result = s.FindWorkersByCapabilityAndOrg(context.Background(), "writing", "")
 	if len(result) != 2 {
 		t.Errorf("FindWorkersByCapabilityAndOrg writing empty org: got %d, want 2", len(result))
 	}

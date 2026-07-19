@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/kienbui1995/magic/core/internal/audit"
+	"github.com/kienbui1995/magic/core/internal/auth"
 	"github.com/kienbui1995/magic/core/internal/config"
 	"github.com/kienbui1995/magic/core/internal/costctrl"
 	"github.com/kienbui1995/magic/core/internal/dispatcher"
@@ -32,29 +33,22 @@ import (
 	"github.com/kienbui1995/magic/core/internal/prompt"
 	"github.com/kienbui1995/magic/core/internal/registry"
 	"github.com/kienbui1995/magic/core/internal/router"
+	"github.com/kienbui1995/magic/core/internal/secrets"
 	"github.com/kienbui1995/magic/core/internal/store"
 	"github.com/kienbui1995/magic/core/internal/policy"
 	"github.com/kienbui1995/magic/core/internal/rbac"
+	"github.com/kienbui1995/magic/core/internal/tracing"
 	"github.com/kienbui1995/magic/core/internal/webhook"
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Println("MagiC — Where AI becomes a Company")
-		fmt.Println("Usage: magic <command>")
-		fmt.Println()
-		fmt.Println("Commands:")
-		fmt.Println("  serve              Start the MagiC server")
-		fmt.Println("  workers            List registered workers")
-		fmt.Println("  tasks              List tasks")
-		fmt.Println("  submit <type>      Submit a task (reads JSON input from stdin)")
-		fmt.Println("  status <task-id>   Get task status")
-		fmt.Println("  version            Print version")
-		fmt.Println()
-		fmt.Println("Environment:")
-		fmt.Println("  MAGIC_URL          Server URL (default: http://localhost:8080)")
-		fmt.Println("  MAGIC_API_KEY      API key for authentication")
-		os.Exit(0)
+	// Support --help / -h at top level.
+	if len(os.Args) < 2 || os.Args[1] == "--help" || os.Args[1] == "-h" || os.Args[1] == "help" {
+		printUsage(os.Stdout)
+		if len(os.Args) < 2 {
+			os.Exit(0)
+		}
+		return
 	}
 
 	switch os.Args[1] {
@@ -90,13 +84,154 @@ func main() {
 			os.Exit(1)
 		}
 		runCLI("GET", "/api/v1/tasks/"+os.Args[2], nil)
+	case "completion":
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "Usage: magic completion <bash|zsh|fish>")
+			os.Exit(1)
+		}
+		if err := printCompletion(os.Stdout, os.Args[2]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	case "version":
 		fmt.Println("magic v0.4.0")
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", os.Args[1])
+		fmt.Fprintln(os.Stderr, "Run 'magic --help' for usage.")
 		os.Exit(1)
 	}
 }
+
+func printUsage(w io.Writer) {
+	fmt.Fprintln(w, "MagiC — Where AI becomes a Company")
+	fmt.Fprintln(w, "Usage: magic <command> [flags]")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Commands:")
+	fmt.Fprintln(w, "  serve                Start the MagiC server")
+	fmt.Fprintln(w, "  workers              List registered workers")
+	fmt.Fprintln(w, "  tasks                List tasks")
+	fmt.Fprintln(w, "  submit <type>        Submit a task (reads JSON input from stdin)")
+	fmt.Fprintln(w, "  status <task-id>     Get task status")
+	fmt.Fprintln(w, "  completion <shell>   Emit shell completion script (bash|zsh|fish)")
+	fmt.Fprintln(w, "  version              Print version")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Flags (serve):")
+	fmt.Fprintln(w, "  --config <path>      Path to YAML config (default: ./magic.yaml if present)")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Config precedence (highest first): CLI flag > env var > config file > built-in default")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Environment:")
+	fmt.Fprintln(w, "  MAGIC_URL            Server URL for client commands (default: http://localhost:8080)")
+	fmt.Fprintln(w, "  MAGIC_API_KEY        API key for authentication")
+	fmt.Fprintln(w, "  MAGIC_POSTGRES_URL   PostgreSQL connection string (enables Postgres backend)")
+	fmt.Fprintln(w, "  MAGIC_STORE          SQLite path (enables SQLite backend)")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Examples:")
+	fmt.Fprintln(w, "  magic serve --config ./magic.yaml")
+	fmt.Fprintln(w, "  magic submit summarize '{\"text\":\"hello\"}'")
+	fmt.Fprintln(w, "  magic completion bash > /etc/bash_completion.d/magic")
+}
+
+// printCompletion writes a shell completion script for the requested shell.
+// Scripts are hardcoded (no runtime reflection) for portability — completing
+// subcommand names is enough for the overwhelming majority of CLI use.
+func printCompletion(w io.Writer, shell string) error {
+	switch shell {
+	case "bash":
+		_, err := fmt.Fprint(w, bashCompletion)
+		return err
+	case "zsh":
+		_, err := fmt.Fprint(w, zshCompletion)
+		return err
+	case "fish":
+		_, err := fmt.Fprint(w, fishCompletion)
+		return err
+	default:
+		return fmt.Errorf("unsupported shell %q (expected: bash, zsh, fish)", shell)
+	}
+}
+
+const bashCompletion = `# bash completion for magic
+# Install: magic completion bash > /etc/bash_completion.d/magic
+# Or (user-local): magic completion bash > ~/.local/share/bash-completion/completions/magic
+_magic_complete() {
+    local cur prev subcmds
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    subcmds="serve workers tasks submit status completion version help"
+
+    if [ "$COMP_CWORD" -eq 1 ]; then
+        COMPREPLY=( $(compgen -W "${subcmds} --help" -- "${cur}") )
+        return 0
+    fi
+
+    case "${COMP_WORDS[1]}" in
+        serve)
+            if [ "${prev}" = "--config" ]; then
+                COMPREPLY=( $(compgen -f -- "${cur}") )
+            else
+                COMPREPLY=( $(compgen -W "--config" -- "${cur}") )
+            fi
+            ;;
+        completion)
+            COMPREPLY=( $(compgen -W "bash zsh fish" -- "${cur}") )
+            ;;
+    esac
+    return 0
+}
+complete -F _magic_complete magic
+`
+
+const zshCompletion = `#compdef magic
+# zsh completion for magic
+# Install: magic completion zsh > "${fpath[1]}/_magic"
+# Then restart your shell (or run: autoload -U compinit && compinit)
+_magic() {
+    local -a subcmds
+    subcmds=(
+        'serve:Start the MagiC server'
+        'workers:List registered workers'
+        'tasks:List tasks'
+        'submit:Submit a task'
+        'status:Get task status'
+        'completion:Emit shell completion script'
+        'version:Print version'
+        'help:Show help'
+    )
+
+    if (( CURRENT == 2 )); then
+        _describe 'command' subcmds
+        return
+    fi
+
+    case "${words[2]}" in
+        serve)
+            _arguments '--config[Path to YAML config]:config file:_files -g "*.yaml"'
+            ;;
+        completion)
+            _values 'shell' bash zsh fish
+            ;;
+    esac
+}
+compdef _magic magic
+`
+
+const fishCompletion = `# fish completion for magic
+# Install: magic completion fish > ~/.config/fish/completions/magic.fish
+complete -c magic -f
+
+complete -c magic -n '__fish_use_subcommand' -a serve      -d 'Start the MagiC server'
+complete -c magic -n '__fish_use_subcommand' -a workers    -d 'List registered workers'
+complete -c magic -n '__fish_use_subcommand' -a tasks      -d 'List tasks'
+complete -c magic -n '__fish_use_subcommand' -a submit     -d 'Submit a task'
+complete -c magic -n '__fish_use_subcommand' -a status     -d 'Get task status'
+complete -c magic -n '__fish_use_subcommand' -a completion -d 'Emit shell completion script'
+complete -c magic -n '__fish_use_subcommand' -a version    -d 'Print version'
+complete -c magic -n '__fish_use_subcommand' -a help       -d 'Show help'
+
+complete -c magic -n '__fish_seen_subcommand_from serve'      -l config -r -d 'Path to YAML config'
+complete -c magic -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish'
+`
 
 func serverURL() string {
 	if u := os.Getenv("MAGIC_URL"); u != "" {
@@ -144,16 +279,57 @@ func runCLI(method, path string, body []byte) {
 }
 
 func runServer() {
-	// Load config: YAML file (optional) + env var overrides
+	// Load config: YAML file (optional) + env var overrides.
+	// Precedence: CLI flag > env var > config file > built-in default.
 	configPath := ""
 	for i, arg := range os.Args {
-		if arg == "--config" && i+1 < len(os.Args) {
+		if (arg == "--config" || arg == "-c") && i+1 < len(os.Args) {
 			configPath = os.Args[i+1]
+		} else if strings.HasPrefix(arg, "--config=") {
+			configPath = strings.TrimPrefix(arg, "--config=")
 		}
 	}
-	cfg, err := config.Load(configPath)
+	// Default: auto-discover ./magic.yaml when no --config flag is set.
+	if configPath == "" {
+		if _, err := os.Stat("magic.yaml"); err == nil {
+			configPath = "magic.yaml"
+			log.Printf("[config] using default ./magic.yaml (override with --config)")
+		}
+	} else {
+		log.Printf("[config] loading from %s", configPath)
+	}
+	// Secret provider is constructed before config so credentials can be
+	// resolved through it (MAGIC_API_KEY, MAGIC_POSTGRES_URL, LLM keys).
+	// Non-secret knobs (port, proxy trust, pool sizes, pgvector dim) stay
+	// on direct os.Getenv. See docs/security/secrets.md.
+	secretProvider, err := secrets.NewFromEnv()
+	if err != nil {
+		log.Fatalf("Failed to init secret provider: %v", err)
+	}
+	log.Printf("[secrets] provider: %s", secretProvider.Name())
+
+	cfg, err := config.LoadWithSecrets(context.Background(), configPath, secretProvider)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// OpenTelemetry tracing — controlled by OTEL_EXPORTER_OTLP_ENDPOINT
+	// (no-op when unset, so zero overhead for dev).
+	tracingShutdown, err := tracing.Setup(context.Background())
+	if err != nil {
+		log.Fatalf("[tracing] init failed: %v", err)
+	}
+	defer func() {
+		sCtx, sCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer sCancel()
+		if err := tracingShutdown(sCtx); err != nil {
+			log.Printf("[tracing] shutdown: %v", err)
+		}
+	}()
+	if ep := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); ep != "" {
+		log.Printf("[tracing] OTLP exporter: %s", ep)
+	} else {
+		log.Printf("[tracing] disabled (set OTEL_EXPORTER_OTLP_ENDPOINT to enable)")
 	}
 
 	port := cfg.Port
@@ -274,6 +450,25 @@ func runServer() {
 
 	orch.SetShutdownContext(shutdownCtx)
 
+	// OIDC / JWT authentication (optional). When MAGIC_OIDC_ISSUER is set,
+	// the gateway additionally accepts JWT bearer tokens validated against
+	// the issuer's JWKS. Existing API-key auth keeps working in parallel.
+	var oidcVerifier *auth.OIDCVerifier
+	if issuer := os.Getenv("MAGIC_OIDC_ISSUER"); issuer != "" {
+		clientID := os.Getenv("MAGIC_OIDC_CLIENT_ID")
+		audience := os.Getenv("MAGIC_OIDC_AUDIENCE")
+		discCtx, discCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		v, err := auth.NewOIDCVerifier(discCtx, issuer, clientID, audience)
+		discCancel()
+		if err != nil {
+			log.Fatalf("[security] OIDC discovery failed: %v", err)
+		}
+		oidcVerifier = v
+		log.Printf("[security] OIDC/JWT auth: enabled (issuer=%s)", issuer)
+	} else {
+		log.Printf("[security] OIDC/JWT auth: disabled (set MAGIC_OIDC_ISSUER to enable)")
+	}
+
 	gw := gateway.New(gateway.Deps{
 		Registry:     reg,
 		Router:       rt,
@@ -294,9 +489,11 @@ func runServer() {
 		LLM:          llmGW,
 		Prompts:      prompts,
 		Memory:       agentMemory,
+		OIDC:         oidcVerifier,
+		APIKey:       cfg.APIKey,
 	})
 
-	if s.HasAnyWorkerTokens() {
+	if s.HasAnyWorkerTokens(context.Background()) {
 		log.Printf("[security] worker token auth: enabled")
 	} else {
 		log.Printf("[security] worker token auth: disabled (dev mode — create a token to enable)")
@@ -318,8 +515,8 @@ func runServer() {
 
 	go func() {
 		fmt.Printf("MagiC server starting on :%s\n", port)
-		if os.Getenv("MAGIC_API_KEY") != "" {
-			fmt.Println("  Authentication: enabled (MAGIC_API_KEY)")
+		if cfg.APIKey != "" {
+			fmt.Println("  Authentication: enabled (MAGIC_API_KEY via " + secretProvider.Name() + ")")
 		} else {
 			fmt.Println("  Authentication: disabled (set MAGIC_API_KEY to enable)")
 		}

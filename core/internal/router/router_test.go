@@ -1,6 +1,7 @@
 package router_test
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -124,8 +125,8 @@ func TestRouteTask_OrgIsolation(t *testing.T) {
 
 	workerA := makeWorker("BotA", "org_a", "content_writing")
 	workerB := makeWorker("BotB", "org_b", "content_writing")
-	s.AddWorker(workerA)
-	s.AddWorker(workerB)
+	s.AddWorker(context.Background(), workerA)
+	s.AddWorker(context.Background(), workerB)
 
 	task := &protocol.Task{
 		ID:   protocol.GenerateID("task"),
@@ -153,7 +154,7 @@ func TestRouteTask_OrgIsolation_NoWorkers(t *testing.T) {
 	rt, _, s := setupRouterWithStore(t)
 
 	workerB := makeWorker("BotB", "org_b", "content_writing")
-	s.AddWorker(workerB)
+	s.AddWorker(context.Background(), workerB)
 
 	task := &protocol.Task{
 		ID:   protocol.GenerateID("task"),
@@ -179,8 +180,8 @@ func TestRouteTask_NoOrgID_RoutesAll(t *testing.T) {
 
 	workerA := makeWorker("BotA", "org_a", "content_writing")
 	workerB := makeWorker("BotB", "org_b", "content_writing")
-	s.AddWorker(workerA)
-	s.AddWorker(workerB)
+	s.AddWorker(context.Background(), workerA)
+	s.AddWorker(context.Background(), workerB)
 
 	task := &protocol.Task{
 		ID:   protocol.GenerateID("task"),
@@ -268,9 +269,9 @@ func TestRouteTask_OrgIsolation_MultipleWorkers(t *testing.T) {
 	workerA2 := makeWorker("BotA2", "org_a", "content_writing")
 	workerA2.CurrentLoad = 3
 	workerB := makeWorker("BotB", "org_b", "content_writing")
-	s.AddWorker(workerA1)
-	s.AddWorker(workerA2)
-	s.AddWorker(workerB)
+	s.AddWorker(context.Background(), workerA1)
+	s.AddWorker(context.Background(), workerA2)
+	s.AddWorker(context.Background(), workerB)
 
 	task := &protocol.Task{
 		ID:   protocol.GenerateID("task"),

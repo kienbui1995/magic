@@ -12,6 +12,10 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
+// MigrationsFS exposes the embedded migration files so that tests can drive
+// up/down directly via golang-migrate without duplicating the embed directive.
+func MigrationsFS() embed.FS { return migrationsFS }
+
 // RunMigrations applies all pending up migrations to the given PostgreSQL URL.
 // It is idempotent — safe to call on every startup.
 func RunMigrations(postgresURL string) error {

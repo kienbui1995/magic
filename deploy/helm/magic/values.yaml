@@ -1,0 +1,279 @@
+# Default values for MagiC.
+# See: https://github.com/kienbui1995/magic
+# -----------------------------------------------------------------------------
+
+# Number of MagiC control-plane replicas. With PostgreSQL backend you can
+# safely scale horizontally. SQLite / in-memory backends should stay at 1.
+replicaCount: 2
+
+image:
+  repository: ghcr.io/kienbui1995/magic
+  # Pinning tag is recommended in production. When empty, chart appVersion is used.
+  tag: ""
+  pullPolicy: IfNotPresent
+  # Image pull secrets (for private registries).
+  pullSecrets: []
+  # - name: ghcr-creds
+
+# Override the full chart name components (typically leave empty).
+nameOverride: ""
+fullnameOverride: ""
+
+# -----------------------------------------------------------------------------
+# Service account
+# -----------------------------------------------------------------------------
+serviceAccount:
+  create: true
+  annotations: {}
+  # Auto-generated based on fullname template when empty.
+  name: ""
+  automountServiceAccountToken: false
+
+# -----------------------------------------------------------------------------
+# Pod + container scheduling / security
+# -----------------------------------------------------------------------------
+podAnnotations: {}
+  # prometheus.io/scrape: "true"
+  # prometheus.io/port: "8080"
+  # prometheus.io/path: "/metrics"
+
+podLabels: {}
+
+# Pod-level security context.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  fsGroup: 65534
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container-level security context. Matches Dockerfile non-root user.
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# -----------------------------------------------------------------------------
+# Service (ClusterIP — frontend with Ingress or internal-only)
+# -----------------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+  annotations: {}
+
+# -----------------------------------------------------------------------------
+# Ingress
+# -----------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+    # nginx.ingress.kubernetes.io/proxy-buffering: "off"  # recommended for SSE
+    # nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+  hosts:
+    - host: magic.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  # - secretName: magic-tls
+  #   hosts:
+  #     - magic.example.com
+
+# -----------------------------------------------------------------------------
+# Resources
+# -----------------------------------------------------------------------------
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+    ephemeral-storage: "256Mi"
+  limits:
+    cpu: 500m
+    memory: 512Mi
+    ephemeral-storage: "1Gi"
+
+# -----------------------------------------------------------------------------
+# HorizontalPodAutoscaler
+# -----------------------------------------------------------------------------
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: null
+
+# -----------------------------------------------------------------------------
+# PodDisruptionBudget
+# -----------------------------------------------------------------------------
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: null
+
+# -----------------------------------------------------------------------------
+# Scheduling
+# -----------------------------------------------------------------------------
+nodeSelector: {}
+
+tolerations: []
+
+# Default to spreading replicas across nodes.
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          topologyKey: kubernetes.io/hostname
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: magic
+
+# Extra volumes + volumeMounts (useful for SQLite PVC, custom CA certs, etc.)
+extraVolumes: []
+extraVolumeMounts: []
+extraEnv: []
+# - name: MAGIC_RATE_LIMIT_DISABLE
+#   value: "false"
+
+# -----------------------------------------------------------------------------
+# Non-secret configuration (goes into ConfigMap, consumed via envFrom)
+# Matches MAGIC_* env vars read by core/internal/config/config.go
+# -----------------------------------------------------------------------------
+config:
+  # Comma-separated list of allowed CORS origins. Leave empty to disable CORS.
+  CORS_ORIGIN: ""
+  # Set to "true" when running behind a trusted reverse proxy (ingress).
+  # Makes MagiC honor X-Forwarded-For for rate limiting.
+  TRUSTED_PROXY: "true"
+  # Embedding dimension for pgvector semantic search. 1536 = text-embedding-3-small.
+  PGVECTOR_DIM: "1536"
+  # PostgreSQL connection pool sizing (only used when Postgres backend active).
+  POSTGRES_POOL_MIN: "2"
+  POSTGRES_POOL_MAX: "20"
+  # Disable rate limiting entirely (NOT recommended in production).
+  RATE_LIMIT_DISABLE: "false"
+  # OpenTelemetry OTLP/HTTP endpoint. Leave empty to disable tracing export.
+  OTEL_ENDPOINT: ""
+
+# -----------------------------------------------------------------------------
+# Secrets
+# -----------------------------------------------------------------------------
+# Either set the values below (chart will create a Secret) OR reference an
+# existing Secret with `existingSecret`. The existing Secret MUST contain:
+#   - MAGIC_API_KEY       (min 32 chars)
+#   - MAGIC_POSTGRES_URL  (optional, required only for Postgres backend)
+secrets:
+  # Min 32 chars. Generate: openssl rand -hex 32
+  apiKey: ""
+  # Leave empty to fall back to in-memory store; set for Postgres backend.
+  postgresUrl: ""
+  # Reference an externally-managed Secret instead of creating one.
+  existingSecret: ""
+
+# -----------------------------------------------------------------------------
+# Probes — both hit /health (auth-free, fast endpoint)
+# -----------------------------------------------------------------------------
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# Start-up probe for slow first-time migrations against big databases.
+startupProbe:
+  enabled: false
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  failureThreshold: 30
+
+# Graceful shutdown (matches srv.Shutdown 15s in cmd/magic/main.go).
+terminationGracePeriodSeconds: 30
+
+# -----------------------------------------------------------------------------
+# Prometheus Operator ServiceMonitor
+# -----------------------------------------------------------------------------
+metrics:
+  serviceMonitor:
+    enabled: false
+    namespace: ""
+    interval: 30s
+    scrapeTimeout: 10s
+    path: /metrics
+    labels: {}
+    # honorLabels: false
+
+# -----------------------------------------------------------------------------
+# NetworkPolicy — restricts ingress + egress
+# -----------------------------------------------------------------------------
+networkPolicy:
+  enabled: false
+  # Pod selectors that are allowed to reach MagiC on port 8080.
+  # Leave empty to allow any namespace (useful when ingress-controller reaches in).
+  ingressFrom: []
+  # - namespaceSelector:
+  #     matchLabels:
+  #       name: ingress-nginx
+  #   podSelector:
+  #     matchLabels:
+  #       app.kubernetes.io/name: ingress-nginx
+  # Extra egress rules beyond cluster DNS + Postgres (chart always allows DNS).
+  egressRules: []
+
+# -----------------------------------------------------------------------------
+# PostgreSQL (Bitnami subchart — keeps this chart self-sufficient)
+# Disable to use an externally-managed Postgres (set secrets.postgresUrl).
+# -----------------------------------------------------------------------------
+postgresql:
+  enabled: true
+  # Bitnami values passed through:
+  auth:
+    username: magic
+    password: ""  # auto-generated when empty
+    database: magic
+    # Existing secret from which to pull password (recommended for production).
+    existingSecret: ""
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+      # storageClass: ""
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+  # NOTE: pgvector is installed automatically by MagiC migrations (CREATE EXTENSION).
+  # The default Bitnami image does NOT ship pgvector binaries — override with
+  # a pgvector-enabled image for production semantic search:
+  image:
+    registry: docker.io
+    repository: pgvector/pgvector
+    tag: pg16
+    pullPolicy: IfNotPresent

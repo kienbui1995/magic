@@ -2,6 +2,7 @@ package webhook
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,6 +16,7 @@ import (
 	"github.com/kienbui1995/magic/core/internal/monitor"
 	"github.com/kienbui1995/magic/core/internal/protocol"
 	"github.com/kienbui1995/magic/core/internal/store"
+	"github.com/kienbui1995/magic/core/internal/tracing"
 )
 
 // retrySchedule defines wait duration before each retry attempt (index = attempt number - 1).
@@ -30,16 +32,20 @@ const maxAttempts = 5
 
 // Sender processes pending WebhookDelivery records from the store every 5s.
 type Sender struct {
-	store  store.Store
-	client *http.Client
-	stop   chan struct{}
+	store       store.Store
+	client      *http.Client
+	stop        chan struct{}
+	// validateURL is the SSRF guard applied before each delivery attempt.
+	// Tests may replace this with a no-op to reach a local httptest server.
+	validateURL func(rawURL string) error
 }
 
 func newSender(s store.Store) *Sender {
 	return &Sender{
-		store:  s,
-		client: &http.Client{Timeout: 10 * time.Second},
-		stop:   make(chan struct{}),
+		store:       s,
+		client:      &http.Client{Timeout: 10 * time.Second},
+		stop:        make(chan struct{}),
+		validateURL: validateDeliveryURL,
 	}
 }
 
@@ -64,13 +70,15 @@ func (s *Sender) Stop() {
 }
 
 func (s *Sender) processQueue() {
-	deliveries := s.store.ListPendingWebhookDeliveries()
+	// TODO(ctx): tie to sender lifecycle once API accepts ctx.
+	ctx := context.TODO()
+	deliveries := s.store.ListPendingWebhookDeliveries(ctx)
 	for _, d := range deliveries {
 		// Skip deliveries not yet ready for retry
 		if d.NextRetry != nil && time.Now().Before(*d.NextRetry) {
 			continue
 		}
-		hook, err := s.store.GetWebhook(d.WebhookID)
+		hook, err := s.store.GetWebhook(ctx, d.WebhookID)
 		if err != nil {
 			// Webhook deleted — mark dead
 			s.markDead(d)
@@ -81,15 +89,26 @@ func (s *Sender) processQueue() {
 }
 
 func (s *Sender) deliver(d *protocol.WebhookDelivery, hook *protocol.Webhook) {
+	// TODO(ctx): propagate from event bus once delivery dispatch carries ctx.
+	ctx := context.TODO()
+	ctx, span := tracing.StartSpan(ctx, "webhook.Deliver")
+	defer span.End()
+	span.SetAttr("webhook.id", hook.ID)
+	span.SetAttr("webhook.url", hook.URL)
+	span.SetAttr("webhook.event_type", d.EventType)
+	span.SetAttr("delivery.attempt", d.Attempts+1)
+
 	// SSRF defense-in-depth: validate URL before delivery
-	if err := validateDeliveryURL(hook.URL); err != nil {
+	if err := s.validateURL(hook.URL); err != nil {
+		span.SetError(err)
 		log.Printf("[webhook] delivery %s blocked: %v", d.ID, err)
 		s.markDead(d)
 		return
 	}
 
-	req, err := http.NewRequest("POST", hook.URL, bytes.NewReader([]byte(d.Payload)))
+	req, err := http.NewRequestWithContext(ctx, "POST", hook.URL, bytes.NewReader([]byte(d.Payload)))
 	if err != nil {
+		span.SetError(err)
 		s.markFailed(d)
 		return
 	}
@@ -112,19 +131,24 @@ func (s *Sender) deliver(d *protocol.WebhookDelivery, hook *protocol.Webhook) {
 			statusCode = resp.StatusCode
 			resp.Body.Close()
 		}
+		span.SetAttr("http.status_code", statusCode)
+		if err != nil {
+			span.SetError(err)
+		}
 		log.Printf("[webhook] delivery %s failed (attempt %d): status=%d err=%v",
 			d.ID, d.Attempts+1, statusCode, err)
 		monitor.MetricWebhookDeliveriesTotal.WithLabelValues("failed").Inc()
 		s.markFailed(d)
 		return
 	}
+	span.SetAttr("http.status_code", resp.StatusCode)
 	resp.Body.Close()
 
 	monitor.MetricWebhookDeliveriesTotal.WithLabelValues("delivered").Inc()
 	d.Status = protocol.DeliveryDelivered
 	d.Attempts++
 	d.UpdatedAt = time.Now()
-	s.store.UpdateWebhookDelivery(d) //nolint:errcheck
+	s.store.UpdateWebhookDelivery(context.TODO(), d) //nolint:errcheck
 }
 
 func (s *Sender) markFailed(d *protocol.WebhookDelivery) {
@@ -141,14 +165,14 @@ func (s *Sender) markFailed(d *protocol.WebhookDelivery) {
 		next := now.Add(backoff)
 		d.NextRetry = &next
 	}
-	s.store.UpdateWebhookDelivery(d) //nolint:errcheck
+	s.store.UpdateWebhookDelivery(context.TODO(), d) //nolint:errcheck
 }
 
 func (s *Sender) markDead(d *protocol.WebhookDelivery) {
 	monitor.MetricWebhookDeliveriesTotal.WithLabelValues("dead").Inc()
 	d.Status = protocol.DeliveryDead
 	d.UpdatedAt = time.Now()
-	s.store.UpdateWebhookDelivery(d) //nolint:errcheck
+	s.store.UpdateWebhookDelivery(context.TODO(), d) //nolint:errcheck
 }
 
 func computeHMAC(secret, payload string) string {
@@ -168,8 +192,8 @@ func validateDeliveryURL(rawURL string) error {
 	host := u.Hostname()
 	// Check literal IP
 	if ip := net.ParseIP(host); ip != nil {
-		if !ip.IsLoopback() && (ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified()) {
-			return fmt.Errorf("private IP blocked")
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			return fmt.Errorf("private/loopback IP blocked")
 		}
 		if host == "169.254.169.254" {
 			return fmt.Errorf("metadata endpoint blocked")
@@ -185,8 +209,8 @@ func validateDeliveryURL(rawURL string) error {
 		return nil // DNS failure — allow, will fail at delivery
 	}
 	for _, ip := range ips {
-		if ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
-			return fmt.Errorf("hostname resolves to private IP")
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			return fmt.Errorf("hostname resolves to private/loopback IP")
 		}
 	}
 	return nil

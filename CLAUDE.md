@@ -130,7 +130,7 @@ cd sdk/python && pytest
 (Workers and internal modules publish these exact strings — match carefully in webhook subscriptions)
 
 ```
-task.dispatched    task.completed    task.failed
+task.dispatched    task.completed    task.failed    task.cancelled
 worker.registered  worker.deregistered  worker.heartbeat
 workflow.completed workflow.failed  workflow.started
 cost.recorded      budget.threshold  budget.exceeded

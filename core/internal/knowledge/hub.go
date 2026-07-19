@@ -1,6 +1,7 @@
 package knowledge
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -19,7 +20,7 @@ func New(s store.Store, bus *events.Bus, vs VectorStore) *Hub {
 	return &Hub{store: s, bus: bus, vectors: vs}
 }
 
-func (h *Hub) Add(title, content string, tags []string, scope, scopeID, createdBy string) (*protocol.KnowledgeEntry, error) {
+func (h *Hub) Add(ctx context.Context, title, content string, tags []string, scope, scopeID, createdBy string) (*protocol.KnowledgeEntry, error) {
 	entry := &protocol.KnowledgeEntry{
 		ID:        protocol.GenerateID("kb"),
 		Title:     title,
@@ -32,7 +33,7 @@ func (h *Hub) Add(title, content string, tags []string, scope, scopeID, createdB
 		UpdatedAt: time.Now(),
 	}
 
-	if err := h.store.AddKnowledge(entry); err != nil {
+	if err := h.store.AddKnowledge(ctx, entry); err != nil {
 		return nil, err
 	}
 
@@ -49,12 +50,12 @@ func (h *Hub) Add(title, content string, tags []string, scope, scopeID, createdB
 	return entry, nil
 }
 
-func (h *Hub) Get(id string) (*protocol.KnowledgeEntry, error) {
-	return h.store.GetKnowledge(id)
+func (h *Hub) Get(ctx context.Context, id string) (*protocol.KnowledgeEntry, error) {
+	return h.store.GetKnowledge(ctx, id)
 }
 
-func (h *Hub) Update(id, title, content string, tags []string) error {
-	entry, err := h.store.GetKnowledge(id)
+func (h *Hub) Update(ctx context.Context, id, title, content string, tags []string) error {
+	entry, err := h.store.GetKnowledge(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -63,7 +64,7 @@ func (h *Hub) Update(id, title, content string, tags []string) error {
 	entry.Tags = tags
 	entry.UpdatedAt = time.Now()
 
-	if err := h.store.UpdateKnowledge(entry); err != nil {
+	if err := h.store.UpdateKnowledge(ctx, entry); err != nil {
 		return err
 	}
 
@@ -76,8 +77,8 @@ func (h *Hub) Update(id, title, content string, tags []string) error {
 	return nil
 }
 
-func (h *Hub) Delete(id string) error {
-	if err := h.store.DeleteKnowledge(id); err != nil {
+func (h *Hub) Delete(ctx context.Context, id string) error {
+	if err := h.store.DeleteKnowledge(ctx, id); err != nil {
 		return err
 	}
 
@@ -90,12 +91,12 @@ func (h *Hub) Delete(id string) error {
 	return nil
 }
 
-func (h *Hub) Search(query string) []*protocol.KnowledgeEntry {
-	return h.store.SearchKnowledge(query)
+func (h *Hub) Search(ctx context.Context, query string) []*protocol.KnowledgeEntry {
+	return h.store.SearchKnowledge(ctx, query)
 }
 
-func (h *Hub) List() []*protocol.KnowledgeEntry {
-	return h.store.ListKnowledge()
+func (h *Hub) List(ctx context.Context) []*protocol.KnowledgeEntry {
+	return h.store.ListKnowledge(ctx)
 }
 
 // SemanticSearch returns knowledge entries ranked by cosine similarity to queryVector.

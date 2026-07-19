@@ -1,6 +1,7 @@
 package costctrl_test
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -16,7 +17,7 @@ func TestCostController_RecordCost(t *testing.T) {
 	bus := events.NewBus()
 	cc := costctrl.New(s, bus)
 	w := &protocol.Worker{ID: "worker_001", Name: "Bot", Status: protocol.StatusActive}
-	s.AddWorker(w)
+	s.AddWorker(context.Background(), w)
 	cc.RecordCost("worker_001", "task_001", 0.15)
 	report := cc.WorkerReport("worker_001")
 	if report.TotalCost != 0.15 {
@@ -40,7 +41,7 @@ func TestCostController_BudgetAlert(t *testing.T) {
 	})
 	w := &protocol.Worker{ID: "worker_001", Name: "Bot", Status: protocol.StatusActive,
 		Limits: protocol.WorkerLimits{MaxCostPerDay: 1.0}}
-	s.AddWorker(w)
+	s.AddWorker(context.Background(), w)
 	cc.RecordCost("worker_001", "task_001", 0.85)
 	time.Sleep(50 * time.Millisecond)
 	mu.Lock()
@@ -56,10 +57,10 @@ func TestCostController_AutoPause(t *testing.T) {
 	cc := costctrl.New(s, bus)
 	w := &protocol.Worker{ID: "worker_001", Name: "Bot", Status: protocol.StatusActive,
 		Limits: protocol.WorkerLimits{MaxCostPerDay: 1.0}}
-	s.AddWorker(w)
+	s.AddWorker(context.Background(), w)
 	cc.RecordCost("worker_001", "task_001", 1.10)
 	time.Sleep(50 * time.Millisecond)
-	got, _ := s.GetWorker("worker_001")
+	got, _ := s.GetWorker(context.Background(), "worker_001")
 	if got.Status != protocol.StatusPaused {
 		t.Errorf("Status: got %q, want paused", got.Status)
 	}
@@ -86,12 +87,12 @@ func TestCostController_CustomPolicy(t *testing.T) {
 
 	w := &protocol.Worker{ID: "w1", Name: "Bot", Status: protocol.StatusActive,
 		Limits: protocol.WorkerLimits{MaxCostPerDay: 100}} // high budget, won't trigger built-in
-	s.AddWorker(w)
+	s.AddWorker(context.Background(), w)
 
 	cc.RecordCost("w1", "t1", 0.75) // exceeds hard cap
 	time.Sleep(50 * time.Millisecond)
 
-	got, _ := s.GetWorker("w1")
+	got, _ := s.GetWorker(context.Background(), "w1")
 	if got.Status != protocol.StatusPaused {
 		t.Errorf("custom policy should pause worker, got status=%q", got.Status)
 	}

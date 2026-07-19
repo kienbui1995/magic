@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"context"
 	"os"
 	"testing"
 
@@ -22,11 +23,11 @@ func TestSQLiteStore_Workers(t *testing.T) {
 		Capabilities: []protocol.Capability{{Name: "greeting"}},
 	}
 
-	if err := s.AddWorker(w); err != nil {
+	if err := s.AddWorker(context.Background(), w); err != nil {
 		t.Fatalf("AddWorker: %v", err)
 	}
 
-	got, err := s.GetWorker("worker_001")
+	got, err := s.GetWorker(context.Background(), "worker_001")
 	if err != nil {
 		t.Fatalf("GetWorker: %v", err)
 	}
@@ -35,25 +36,25 @@ func TestSQLiteStore_Workers(t *testing.T) {
 	}
 
 	w.Status = protocol.StatusPaused
-	if err := s.UpdateWorker(w); err != nil {
+	if err := s.UpdateWorker(context.Background(), w); err != nil {
 		t.Fatalf("UpdateWorker: %v", err)
 	}
 
-	workers := s.ListWorkers()
+	workers := s.ListWorkers(context.Background())
 	if len(workers) != 1 {
 		t.Errorf("ListWorkers: got %d", len(workers))
 	}
 
-	found := s.FindWorkersByCapability("greeting")
+	found := s.FindWorkersByCapability(context.Background(), "greeting")
 	// Paused worker should not be found
 	if len(found) != 0 {
 		t.Errorf("FindByCapability paused: got %d, want 0", len(found))
 	}
 
-	if err := s.RemoveWorker("worker_001"); err != nil {
+	if err := s.RemoveWorker(context.Background(), "worker_001"); err != nil {
 		t.Fatalf("RemoveWorker: %v", err)
 	}
-	if _, err := s.GetWorker("worker_001"); err == nil {
+	if _, err := s.GetWorker(context.Background(), "worker_001"); err == nil {
 		t.Error("should fail after remove")
 	}
 }
@@ -66,19 +67,19 @@ func TestSQLiteStore_TasksAndWorkflows(t *testing.T) {
 	defer s.Close()
 
 	task := &protocol.Task{ID: "task_001", Type: "greeting", Status: protocol.TaskPending}
-	if err := s.AddTask(task); err != nil {
+	if err := s.AddTask(context.Background(), task); err != nil {
 		t.Fatalf("AddTask: %v", err)
 	}
-	got, _ := s.GetTask("task_001")
+	got, _ := s.GetTask(context.Background(), "task_001")
 	if got.Type != "greeting" {
 		t.Errorf("Type: got %q", got.Type)
 	}
 
 	wf := &protocol.Workflow{ID: "wf_001", Name: "Test", Status: protocol.WorkflowPending}
-	if err := s.AddWorkflow(wf); err != nil {
+	if err := s.AddWorkflow(context.Background(), wf); err != nil {
 		t.Fatalf("AddWorkflow: %v", err)
 	}
-	gotWf, _ := s.GetWorkflow("wf_001")
+	gotWf, _ := s.GetWorkflow(context.Background(), "wf_001")
 	if gotWf.Name != "Test" {
 		t.Errorf("Name: got %q", gotWf.Name)
 	}
@@ -91,13 +92,13 @@ func TestSQLiteStore_Persistence(t *testing.T) {
 
 	// Write
 	s1, _ := store.NewSQLiteStore(path)
-	s1.AddWorker(&protocol.Worker{ID: "w1", Name: "Bot", Status: protocol.StatusActive})
+	s1.AddWorker(context.Background(), &protocol.Worker{ID: "w1", Name: "Bot", Status: protocol.StatusActive})
 	s1.Close()
 
 	// Read in new connection
 	s2, _ := store.NewSQLiteStore(path)
 	defer s2.Close()
-	got, err := s2.GetWorker("w1")
+	got, err := s2.GetWorker(context.Background(), "w1")
 	if err != nil {
 		t.Fatalf("should persist: %v", err)
 	}

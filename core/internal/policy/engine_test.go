@@ -1,6 +1,7 @@
 package policy_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ func TestEngine_DevMode_NoPolicies(t *testing.T) {
 
 func TestEngine_HardGuardrail_BlockedCapability(t *testing.T) {
 	e, s := setup(t)
-	s.AddPolicy(&protocol.Policy{
+	s.AddPolicy(context.Background(), &protocol.Policy{
 		ID: "p1", OrgID: "org1", Name: "security", Enabled: true,
 		Rules: []protocol.PolicyRule{
 			{Name: "blocked_capabilities", Effect: protocol.PolicyHard, Value: []any{"dangerous_tool"}},
@@ -51,7 +52,7 @@ func TestEngine_HardGuardrail_BlockedCapability(t *testing.T) {
 
 func TestEngine_SoftGuardrail_CostWarning(t *testing.T) {
 	e, s := setup(t)
-	s.AddPolicy(&protocol.Policy{
+	s.AddPolicy(context.Background(), &protocol.Policy{
 		ID: "p1", OrgID: "org1", Name: "cost-limit", Enabled: true,
 		Rules: []protocol.PolicyRule{
 			{Name: "max_cost_per_task", Effect: protocol.PolicySoft, Value: float64(1.0)},
@@ -78,7 +79,7 @@ func TestEngine_SoftGuardrail_CostWarning(t *testing.T) {
 
 func TestEngine_AllowedCapabilities_Whitelist(t *testing.T) {
 	e, s := setup(t)
-	s.AddPolicy(&protocol.Policy{
+	s.AddPolicy(context.Background(), &protocol.Policy{
 		ID: "p1", OrgID: "org1", Name: "whitelist", Enabled: true,
 		Rules: []protocol.PolicyRule{
 			{Name: "allowed_capabilities", Effect: protocol.PolicyHard, Value: []any{"writing", "analysis"}},
@@ -111,7 +112,7 @@ func TestEngine_AllowedCapabilities_Whitelist(t *testing.T) {
 
 func TestEngine_MaxTimeout(t *testing.T) {
 	e, s := setup(t)
-	s.AddPolicy(&protocol.Policy{
+	s.AddPolicy(context.Background(), &protocol.Policy{
 		ID: "p1", OrgID: "org1", Name: "timeout", Enabled: true,
 		Rules: []protocol.PolicyRule{
 			{Name: "max_timeout_ms", Effect: protocol.PolicyHard, Value: float64(30000)},
@@ -132,7 +133,7 @@ func TestEngine_MaxTimeout(t *testing.T) {
 
 func TestEngine_DisabledPolicy_Ignored(t *testing.T) {
 	e, s := setup(t)
-	s.AddPolicy(&protocol.Policy{
+	s.AddPolicy(context.Background(), &protocol.Policy{
 		ID: "p1", OrgID: "org1", Name: "disabled", Enabled: false,
 		Rules: []protocol.PolicyRule{
 			{Name: "blocked_capabilities", Effect: protocol.PolicyHard, Value: []any{"everything"}},

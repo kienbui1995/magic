@@ -1,0 +1,22 @@
+coverage:
+  status:
+    project:
+      default:
+        target: 70%
+        threshold: 1%
+    patch:
+      default:
+        target: 80%
+
+ignore:
+  - "**/*_test.go"
+  - "examples/"
+  - "benchmarks/"
+  - "docs-site/"
+  - "sdk/typescript/"
+  - "site/"
+
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default
+  require_changes: false

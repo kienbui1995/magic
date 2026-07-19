@@ -1,6 +1,7 @@
 package webhook
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"time"
@@ -27,12 +28,27 @@ type Manager struct {
 	sender *Sender
 }
 
+// Option configures a Manager's internal Sender.
+type Option func(*Sender)
+
+// AllowAllURLs disables the SSRF URL guard in the delivery Sender.
+// Only use this in tests; never in production.
+func AllowAllURLs() Option {
+	return func(s *Sender) {
+		s.validateURL = func(_ string) error { return nil }
+	}
+}
+
 // New creates a Manager. Call Start() to begin processing.
-func New(s store.Store, bus *events.Bus) *Manager {
+func New(s store.Store, bus *events.Bus, opts ...Option) *Manager {
+	sender := newSender(s)
+	for _, opt := range opts {
+		opt(sender)
+	}
 	return &Manager{
 		store:  s,
 		bus:    bus,
-		sender: newSender(s),
+		sender: sender,
 	}
 }
 
@@ -53,7 +69,10 @@ func (m *Manager) Stop() {
 }
 
 func (m *Manager) onEvent(e events.Event) {
-	hooks := m.store.FindWebhooksByEvent(e.Type)
+	// Events from the bus do not carry a request context — use Background here.
+	// This is a deliberate limitation: the bus is global and context-free.
+	ctx := context.Background()
+	hooks := m.store.FindWebhooksByEvent(ctx, e.Type)
 	if len(hooks) == 0 {
 		return
 	}
@@ -73,20 +92,21 @@ func (m *Manager) onEvent(e events.Event) {
 		d := &protocol.WebhookDelivery{
 			ID:        protocol.GenerateID("wd"),
 			WebhookID: hook.ID,
+			OrgID:     hook.OrgID,
 			EventType: e.Type,
 			Payload:   payload,
 			Status:    protocol.DeliveryPending,
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
-		if err := m.store.AddWebhookDelivery(d); err != nil {
+		if err := m.store.AddWebhookDelivery(ctx, d); err != nil {
 			log.Printf("[webhook] failed to enqueue delivery for hook %s: %v", hook.ID, err)
 		}
 	}
 }
 
 // CreateWebhook registers a new webhook.
-func (m *Manager) CreateWebhook(orgID, url string, eventTypes []string, secret string) (*protocol.Webhook, error) {
+func (m *Manager) CreateWebhook(ctx context.Context, orgID, url string, eventTypes []string, secret string) (*protocol.Webhook, error) {
 	hook := &protocol.Webhook{
 		ID:        protocol.GenerateID("wh"),
 		OrgID:     orgID,
@@ -96,20 +116,20 @@ func (m *Manager) CreateWebhook(orgID, url string, eventTypes []string, secret s
 		Active:    true,
 		CreatedAt: time.Now(),
 	}
-	if err := m.store.AddWebhook(hook); err != nil {
+	if err := m.store.AddWebhook(ctx, hook); err != nil {
 		return nil, err
 	}
 	return hook, nil
 }
 
 // DeleteWebhook removes a webhook.
-func (m *Manager) DeleteWebhook(id string) error {
-	return m.store.DeleteWebhook(id)
+func (m *Manager) DeleteWebhook(ctx context.Context, id string) error {
+	return m.store.DeleteWebhook(ctx, id)
 }
 
 // ListWebhooks returns all webhooks for an org. Secrets are redacted.
-func (m *Manager) ListWebhooks(orgID string) []*protocol.Webhook {
-	hooks := m.store.ListWebhooksByOrg(orgID)
+func (m *Manager) ListWebhooks(ctx context.Context, orgID string) []*protocol.Webhook {
+	hooks := m.store.ListWebhooksByOrg(ctx, orgID)
 	for _, h := range hooks {
 		h.Secret = "" // never expose secret
 	}
@@ -117,8 +137,8 @@ func (m *Manager) ListWebhooks(orgID string) []*protocol.Webhook {
 }
 
 // ListDeliveries returns pending/failed deliveries for a webhook.
-func (m *Manager) ListDeliveries(webhookID string) []*protocol.WebhookDelivery {
-	all := m.store.ListPendingWebhookDeliveries()
+func (m *Manager) ListDeliveries(ctx context.Context, webhookID string) []*protocol.WebhookDelivery {
+	all := m.store.ListPendingWebhookDeliveries(ctx)
 	var result []*protocol.WebhookDelivery
 	for _, d := range all {
 		if d.WebhookID == webhookID {

@@ -1,6 +1,7 @@
 package orgmgr_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/kienbui1995/magic/core/internal/events"
@@ -14,7 +15,7 @@ func TestOrgManager_CreateTeam(t *testing.T) {
 	bus := events.NewBus()
 	mgr := orgmgr.New(s, bus)
 
-	team, err := mgr.CreateTeam("Marketing", "org_magic", 10.0)
+	team, err := mgr.CreateTeam(context.Background(), "Marketing", "org_magic", 10.0)
 	if err != nil {
 		t.Fatalf("CreateTeam: %v", err)
 	}
@@ -34,21 +35,21 @@ func TestOrgManager_AssignWorker(t *testing.T) {
 	bus := events.NewBus()
 	mgr := orgmgr.New(s, bus)
 
-	team, _ := mgr.CreateTeam("Marketing", "org_magic", 10.0)
+	team, _ := mgr.CreateTeam(context.Background(), "Marketing", "org_magic", 10.0)
 	w := &protocol.Worker{ID: "worker_001", Name: "Bot", Status: protocol.StatusActive}
-	s.AddWorker(w)
+	s.AddWorker(context.Background(), w)
 
-	err := mgr.AssignWorker(team.ID, "worker_001")
+	err := mgr.AssignWorker(context.Background(), team.ID, "worker_001")
 	if err != nil {
 		t.Fatalf("AssignWorker: %v", err)
 	}
 
-	got, _ := s.GetTeam(team.ID)
+	got, _ := s.GetTeam(context.Background(), team.ID)
 	if len(got.Workers) != 1 || got.Workers[0] != "worker_001" {
 		t.Errorf("Workers: got %v", got.Workers)
 	}
 
-	gotW, _ := s.GetWorker("worker_001")
+	gotW, _ := s.GetWorker(context.Background(), "worker_001")
 	if gotW.TeamID != team.ID {
 		t.Errorf("TeamID: got %q", gotW.TeamID)
 	}
@@ -59,22 +60,22 @@ func TestOrgManager_RemoveWorker(t *testing.T) {
 	bus := events.NewBus()
 	mgr := orgmgr.New(s, bus)
 
-	team, _ := mgr.CreateTeam("Marketing", "org_magic", 10.0)
+	team, _ := mgr.CreateTeam(context.Background(), "Marketing", "org_magic", 10.0)
 	w := &protocol.Worker{ID: "worker_001", Name: "Bot", Status: protocol.StatusActive}
-	s.AddWorker(w)
-	mgr.AssignWorker(team.ID, "worker_001")
+	s.AddWorker(context.Background(), w)
+	mgr.AssignWorker(context.Background(), team.ID, "worker_001")
 
-	err := mgr.RemoveWorker(team.ID, "worker_001")
+	err := mgr.RemoveWorker(context.Background(), team.ID, "worker_001")
 	if err != nil {
 		t.Fatalf("RemoveWorker: %v", err)
 	}
 
-	got, _ := s.GetTeam(team.ID)
+	got, _ := s.GetTeam(context.Background(), team.ID)
 	if len(got.Workers) != 0 {
 		t.Errorf("Workers: got %v, want empty", got.Workers)
 	}
 
-	gotW, _ := s.GetWorker("worker_001")
+	gotW, _ := s.GetWorker(context.Background(), "worker_001")
 	if gotW.TeamID != "" {
 		t.Errorf("TeamID: got %q, want empty", gotW.TeamID)
 	}
@@ -85,10 +86,10 @@ func TestOrgManager_ListTeams(t *testing.T) {
 	bus := events.NewBus()
 	mgr := orgmgr.New(s, bus)
 
-	mgr.CreateTeam("Marketing", "org_magic", 10.0)
-	mgr.CreateTeam("Sales", "org_magic", 15.0)
+	mgr.CreateTeam(context.Background(), "Marketing", "org_magic", 10.0)
+	mgr.CreateTeam(context.Background(), "Sales", "org_magic", 15.0)
 
-	teams := mgr.ListTeams()
+	teams := mgr.ListTeams(context.Background())
 	if len(teams) != 2 {
 		t.Errorf("ListTeams: got %d, want 2", len(teams))
 	}
@@ -99,14 +100,14 @@ func TestOrgManager_DeleteTeam(t *testing.T) {
 	bus := events.NewBus()
 	mgr := orgmgr.New(s, bus)
 
-	team, _ := mgr.CreateTeam("Marketing", "org_magic", 10.0)
+	team, _ := mgr.CreateTeam(context.Background(), "Marketing", "org_magic", 10.0)
 
-	err := mgr.DeleteTeam(team.ID)
+	err := mgr.DeleteTeam(context.Background(), team.ID)
 	if err != nil {
 		t.Fatalf("DeleteTeam: %v", err)
 	}
 
-	teams := mgr.ListTeams()
+	teams := mgr.ListTeams(context.Background())
 	if len(teams) != 0 {
 		t.Errorf("ListTeams after delete: got %d", len(teams))
 	}

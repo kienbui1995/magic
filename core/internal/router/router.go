@@ -1,12 +1,14 @@
 package router
 
 import (
+	"context"
 	"errors"
 
 	"github.com/kienbui1995/magic/core/internal/events"
 	"github.com/kienbui1995/magic/core/internal/protocol"
 	"github.com/kienbui1995/magic/core/internal/registry"
 	"github.com/kienbui1995/magic/core/internal/store"
+	"github.com/kienbui1995/magic/core/internal/tracing"
 )
 
 // ErrNoWorkerAvailable is returned when no suitable worker is found for a task.
@@ -45,12 +47,33 @@ func (r *Router) RegisterStrategy(s Strategy) {
 // RouteTask selects a worker for the task using the configured routing strategy.
 // When task.Context.OrgID is set, only workers in the same org are considered
 // (security mode). When empty, all workers are eligible (dev mode).
+//
+// Kept for backward compatibility with call sites that do not yet have a
+// context available. Prefer RouteTaskCtx so the routing span is a child of
+// the caller's trace.
 func (r *Router) RouteTask(task *protocol.Task) (*protocol.Worker, error) {
+	// TODO(ctx): propagate from caller once all call sites pass ctx.
+	return r.RouteTaskCtx(context.TODO(), task)
+}
+
+// RouteTaskCtx is the context-aware variant of RouteTask. Spans created here
+// attach to any OTel span carried by ctx so the routing step shows up as a
+// child of the incoming HTTP / workflow trace.
+func (r *Router) RouteTaskCtx(ctx context.Context, task *protocol.Task) (*protocol.Worker, error) {
+	ctx, span := tracing.StartSpan(ctx, "router.RouteTask")
+	defer span.End()
+	span.SetAttr("task.id", task.ID)
+	span.SetAttr("task.type", task.Type)
+	span.SetAttr("routing.strategy", task.Routing.Strategy)
+	if task.Context.OrgID != "" {
+		span.SetAttr("org.id", task.Context.OrgID)
+	}
+
 	orgID := task.Context.OrgID
 
 	var allWorkers []*protocol.Worker
 	if orgID != "" {
-		allWorkers = r.store.ListWorkersByOrg(orgID)
+		allWorkers = r.store.ListWorkersByOrg(ctx, orgID)
 	} else {
 		allWorkers = r.registry.ListWorkers()
 	}
@@ -88,11 +111,14 @@ func (r *Router) RouteTask(task *protocol.Task) (*protocol.Worker, error) {
 		return nil, ErrNoWorkerAvailable
 	}
 
+	span.SetAttr("worker.id", selected.ID)
+	span.SetAttr("worker.name", selected.Name)
+
 	task.AssignedWorker = selected.ID
 	task.Status = protocol.TaskAssigned
 
 	selected.CurrentLoad++
-	r.store.UpdateWorker(selected) //nolint:errcheck
+	r.store.UpdateWorker(ctx, selected) //nolint:errcheck
 
 	r.bus.Publish(events.Event{
 		Type:   "task.routed",

@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -22,10 +23,12 @@ func New(s store.Store, bus *events.Bus) *Registry {
 
 // Register adds a new worker to the system.
 func (r *Registry) Register(p protocol.RegisterPayload) (*protocol.Worker, error) {
-	if p.WorkerToken != "" || r.store.HasAnyWorkerTokens() {
+	// TODO(ctx): propagate from caller (gateway handler) once Registry API takes ctx.
+	ctx := context.TODO()
+	if p.WorkerToken != "" || r.store.HasAnyWorkerTokens(ctx) {
 		// Security mode: token required
 		hash := protocol.HashToken(p.WorkerToken)
-		token, err := r.store.GetWorkerTokenByHash(hash)
+		token, err := r.store.GetWorkerTokenByHash(ctx, hash)
 		if err != nil {
 			return nil, fmt.Errorf("invalid worker token")
 		}
@@ -50,14 +53,14 @@ func (r *Registry) Register(p protocol.RegisterPayload) (*protocol.Worker, error
 			Metadata:      p.Metadata,
 		}
 
-		if err := r.store.AddWorker(w); err != nil {
+		if err := r.store.AddWorker(ctx, w); err != nil {
 			return nil, err
 		}
 
 		// Bind token to worker; rollback on failure
 		token.WorkerID = w.ID
-		if err := r.store.UpdateWorkerToken(token); err != nil {
-			r.store.RemoveWorker(w.ID) //nolint:errcheck
+		if err := r.store.UpdateWorkerToken(ctx, token); err != nil {
+			r.store.RemoveWorker(ctx, w.ID) //nolint:errcheck
 			return nil, fmt.Errorf("token already in use")
 		}
 
@@ -87,7 +90,7 @@ func (r *Registry) Register(p protocol.RegisterPayload) (*protocol.Worker, error
 		Metadata:      p.Metadata,
 	}
 
-	if err := r.store.AddWorker(w); err != nil {
+	if err := r.store.AddWorker(ctx, w); err != nil {
 		return nil, err
 	}
 
@@ -105,7 +108,8 @@ func (r *Registry) Register(p protocol.RegisterPayload) (*protocol.Worker, error
 
 // Deregister removes a worker from the system.
 func (r *Registry) Deregister(workerID string) error {
-	if err := r.store.RemoveWorker(workerID); err != nil {
+	// TODO(ctx): propagate from caller.
+	if err := r.store.RemoveWorker(context.TODO(), workerID); err != nil {
 		return err
 	}
 
@@ -120,12 +124,14 @@ func (r *Registry) Deregister(workerID string) error {
 
 // Heartbeat updates a worker's health status. Does not override "paused" status.
 func (r *Registry) Heartbeat(p protocol.HeartbeatPayload) error {
-	if p.WorkerToken != "" || r.store.HasAnyWorkerTokens() {
+	// TODO(ctx): propagate from caller.
+	ctx := context.TODO()
+	if p.WorkerToken != "" || r.store.HasAnyWorkerTokens(ctx) {
 		// Security mode: validate token
 		hash := protocol.HashToken(p.WorkerToken)
-		token, err := r.store.GetWorkerTokenByHash(hash)
+		token, err := r.store.GetWorkerTokenByHash(ctx, hash)
 		if err != nil {
-			r.store.AppendAudit(&protocol.AuditEntry{ //nolint:errcheck
+			r.store.AppendAudit(ctx, &protocol.AuditEntry{ //nolint:errcheck
 				ID:       protocol.GenerateID("audit"),
 				WorkerID: p.WorkerID,
 				Action:   "worker.heartbeat",
@@ -135,7 +141,7 @@ func (r *Registry) Heartbeat(p protocol.HeartbeatPayload) error {
 			return fmt.Errorf("invalid worker token")
 		}
 		if !token.IsValid() {
-			r.store.AppendAudit(&protocol.AuditEntry{ //nolint:errcheck
+			r.store.AppendAudit(ctx, &protocol.AuditEntry{ //nolint:errcheck
 				ID:       protocol.GenerateID("audit"),
 				WorkerID: p.WorkerID,
 				Action:   "worker.heartbeat",
@@ -145,7 +151,7 @@ func (r *Registry) Heartbeat(p protocol.HeartbeatPayload) error {
 			return fmt.Errorf("token expired or revoked")
 		}
 		if token.WorkerID != p.WorkerID {
-			r.store.AppendAudit(&protocol.AuditEntry{ //nolint:errcheck
+			r.store.AppendAudit(ctx, &protocol.AuditEntry{ //nolint:errcheck
 				ID:       protocol.GenerateID("audit"),
 				WorkerID: p.WorkerID,
 				Action:   "worker.heartbeat",
@@ -157,7 +163,7 @@ func (r *Registry) Heartbeat(p protocol.HeartbeatPayload) error {
 	}
 	// Dev mode: no tokens exist, skip validation
 
-	w, err := r.store.GetWorker(p.WorkerID)
+	w, err := r.store.GetWorker(ctx, p.WorkerID)
 	if err != nil {
 		return err
 	}
@@ -166,7 +172,7 @@ func (r *Registry) Heartbeat(p protocol.HeartbeatPayload) error {
 	if p.Status != "" && w.Status != protocol.StatusPaused {
 		w.Status = p.Status
 	}
-	if err := r.store.UpdateWorker(w); err != nil {
+	if err := r.store.UpdateWorker(ctx, w); err != nil {
 		return err
 	}
 
@@ -182,13 +188,48 @@ func (r *Registry) Heartbeat(p protocol.HeartbeatPayload) error {
 }
 
 func (r *Registry) GetWorker(id string) (*protocol.Worker, error) {
-	return r.store.GetWorker(id)
+	return r.store.GetWorker(context.TODO(), id) // TODO(ctx): propagate from caller.
 }
 
 func (r *Registry) ListWorkers() []*protocol.Worker {
-	return r.store.ListWorkers()
+	return r.store.ListWorkers(context.TODO()) // TODO(ctx): propagate from caller.
 }
 
 func (r *Registry) FindByCapability(capability string) []*protocol.Worker {
-	return r.store.FindWorkersByCapability(capability)
+	return r.store.FindWorkersByCapability(context.TODO(), capability) // TODO(ctx): propagate from caller.
+}
+
+// PauseWorker marks a worker as paused. The router will skip paused workers
+// when selecting targets for new tasks. Heartbeats from the worker will not
+// override the paused state.
+func (r *Registry) PauseWorker(ctx context.Context, id string) error {
+	return r.setWorkerStatus(ctx, id, protocol.StatusPaused, "worker.paused")
+}
+
+// ResumeWorker transitions a paused worker back to active.
+func (r *Registry) ResumeWorker(ctx context.Context, id string) error {
+	return r.setWorkerStatus(ctx, id, protocol.StatusActive, "worker.resumed")
+}
+
+func (r *Registry) setWorkerStatus(ctx context.Context, id, status, eventType string) error {
+	w, err := r.store.GetWorker(ctx, id)
+	if err != nil {
+		return err
+	}
+	if w.Status == status {
+		return nil // idempotent: already in the target state
+	}
+	w.Status = status
+	if err := r.store.UpdateWorker(ctx, w); err != nil {
+		return err
+	}
+	r.bus.Publish(events.Event{
+		Type:   eventType,
+		Source: "registry",
+		Payload: map[string]any{
+			"worker_id": id,
+			"status":    status,
+		},
+	})
+	return nil
 }

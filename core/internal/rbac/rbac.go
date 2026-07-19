@@ -1,6 +1,8 @@
 package rbac
 
 import (
+	"context"
+
 	"github.com/kienbui1995/magic/core/internal/protocol"
 	"github.com/kienbui1995/magic/core/internal/store"
 )
@@ -32,13 +34,13 @@ func New(s store.Store) *Enforcer {
 
 // Check returns true if the subject has permission to perform the action in the org.
 // Returns true if no role bindings exist for the org (dev mode / open access).
-func (e *Enforcer) Check(orgID, subject, action string) bool {
-	bindings := e.store.ListRoleBindingsByOrg(orgID)
+func (e *Enforcer) Check(ctx context.Context, orgID, subject, action string) bool {
+	bindings := e.store.ListRoleBindingsByOrg(ctx, orgID)
 	if len(bindings) == 0 {
 		return true // no RBAC configured → allow all (dev mode)
 	}
 
-	rb, err := e.store.FindRoleBinding(orgID, subject)
+	rb, err := e.store.FindRoleBinding(ctx, orgID, subject)
 	if err != nil {
 		return false
 	}
@@ -51,8 +53,8 @@ func (e *Enforcer) Check(orgID, subject, action string) bool {
 }
 
 // RoleFor returns the role for a subject in an org, or empty string if not found.
-func (e *Enforcer) RoleFor(orgID, subject string) string {
-	rb, err := e.store.FindRoleBinding(orgID, subject)
+func (e *Enforcer) RoleFor(ctx context.Context, orgID, subject string) string {
+	rb, err := e.store.FindRoleBinding(ctx, orgID, subject)
 	if err != nil {
 		return ""
 	}

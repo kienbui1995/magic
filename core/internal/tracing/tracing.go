@@ -1,8 +1,12 @@
-// Package tracing provides lightweight W3C Trace Context propagation
-// compatible with OpenTelemetry without requiring the full OTel SDK.
+// Package tracing wraps the OpenTelemetry SDK with a small, MagiC-friendly API.
 //
-// When MAGIC_OTEL_ENDPOINT is set, spans are exported via OTLP/HTTP.
-// Otherwise, trace context is still propagated via W3C traceparent headers.
+// The public surface (StartSpan, Span.SetAttr, Span.End, InjectHeaders,
+// ExtractContext / ExtractFromRequest) is stable and does not leak OTel types
+// to callers — this lets us swap backends later without touching call sites.
+//
+// When Setup has not been called (or OTEL_EXPORTER_OTLP_ENDPOINT is unset),
+// the package falls back to a no-op tracer: spans are allocated cheaply but
+// nothing is exported, and propagation still works for compatibility.
 package tracing
 
 import (
@@ -12,71 +16,155 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
-type ctxKey struct{}
+// tracerName is the instrumentation scope used for all MagiC core spans.
+const tracerName = "github.com/kienbui1995/magic/core"
 
-// Span represents a trace span.
+// Span wraps an OTel span so callers keep their existing `*Span` API.
 type Span struct {
-	TraceID  string            `json:"trace_id"`
-	SpanID   string            `json:"span_id"`
-	ParentID string            `json:"parent_id,omitempty"`
-	Name     string            `json:"name"`
-	Start    time.Time         `json:"start"`
-	EndTime  time.Time         `json:"end,omitempty"`
-	Attrs    map[string]string `json:"attrs,omitempty"`
-	Status   string            `json:"status,omitempty"` // ok, error
+	otel oteltrace.Span
 }
 
-func randomID(n int) string {
-	b := make([]byte, n)
-	rand.Read(b)
-	return hex.EncodeToString(b)
-}
-
-// NewTraceID generates a new 128-bit trace ID.
-func NewTraceID() string { return randomID(16) }
-
-// NewSpanID generates a new 64-bit span ID.
-func NewSpanID() string { return randomID(8) }
-
-// StartSpan creates a new span, inheriting trace context from ctx.
+// StartSpan starts a new span as a child of any span carried by ctx and
+// returns the updated context plus the new span. If OTel is not initialized
+// the global provider is a no-op and this costs essentially nothing.
 func StartSpan(ctx context.Context, name string) (context.Context, *Span) {
-	s := &Span{
-		SpanID: NewSpanID(),
-		Name:   name,
-		Start:  time.Now(),
-		Attrs:  make(map[string]string),
-	}
-	if parent, ok := ctx.Value(ctxKey{}).(*Span); ok {
-		s.TraceID = parent.TraceID
-		s.ParentID = parent.SpanID
-	} else {
-		s.TraceID = NewTraceID()
-	}
-	return context.WithValue(ctx, ctxKey{}, s), s
+	tracer := otel.Tracer(tracerName)
+	ctx, s := tracer.Start(ctx, name)
+	return ctx, &Span{otel: s}
 }
 
-// End marks the span as finished.
-func (s *Span) End() { s.EndTime = time.Now() }
+// End finishes the span.
+func (s *Span) End() {
+	if s == nil || s.otel == nil {
+		return
+	}
+	s.otel.End()
+}
 
-// SetAttr sets a span attribute.
-func (s *Span) SetAttr(k, v string) { s.Attrs[k] = v }
+// SetAttr sets a span attribute. Accepts string, bool, int/int64, or float64;
+// anything else is stringified via fmt.Sprint for safety.
+func (s *Span) SetAttr(key string, value any) {
+	if s == nil || s.otel == nil {
+		return
+	}
+	switch v := value.(type) {
+	case string:
+		s.otel.SetAttributes(attribute.String(key, v))
+	case bool:
+		s.otel.SetAttributes(attribute.Bool(key, v))
+	case int:
+		s.otel.SetAttributes(attribute.Int(key, v))
+	case int64:
+		s.otel.SetAttributes(attribute.Int64(key, v))
+	case float64:
+		s.otel.SetAttributes(attribute.Float64(key, v))
+	default:
+		s.otel.SetAttributes(attribute.String(key, fmt.Sprint(v)))
+	}
+}
 
-// SetError marks the span as errored.
+// SetError records an error on the span and marks its status as Error.
 func (s *Span) SetError(err error) {
-	s.Status = "error"
-	s.Attrs["error"] = err.Error()
+	if s == nil || s.otel == nil || err == nil {
+		return
+	}
+	s.otel.RecordError(err)
+	s.otel.SetAttributes(attribute.String("error", err.Error()))
 }
 
-// Traceparent returns the W3C traceparent header value.
-// Format: 00-{trace_id}-{span_id}-01
+// TraceID returns the current trace ID in hex, or "" if no recording span.
+func (s *Span) TraceID() string {
+	if s == nil || s.otel == nil {
+		return ""
+	}
+	sc := s.otel.SpanContext()
+	if !sc.IsValid() {
+		return ""
+	}
+	return sc.TraceID().String()
+}
+
+// SpanID returns the current span ID in hex, or "" if no recording span.
+func (s *Span) SpanID() string {
+	if s == nil || s.otel == nil {
+		return ""
+	}
+	sc := s.otel.SpanContext()
+	if !sc.IsValid() {
+		return ""
+	}
+	return sc.SpanID().String()
+}
+
+// Traceparent returns the W3C traceparent header for this span, or "" if
+// no valid span context is available.
 func (s *Span) Traceparent() string {
-	return fmt.Sprintf("00-%s-%s-01", s.TraceID, s.SpanID)
+	if s == nil || s.otel == nil {
+		return ""
+	}
+	sc := s.otel.SpanContext()
+	if !sc.IsValid() {
+		return ""
+	}
+	flags := "00"
+	if sc.IsSampled() {
+		flags = "01"
+	}
+	return fmt.Sprintf("00-%s-%s-%s", sc.TraceID().String(), sc.SpanID().String(), flags)
 }
 
-// ParseTraceparent extracts trace/span IDs from a W3C traceparent header.
+// InjectHeaders writes W3C Trace Context (traceparent/tracestate) headers —
+// plus any other propagators registered with the global OTel provider — into
+// the outbound request so downstream workers can continue the trace.
+func InjectHeaders(ctx context.Context, req *http.Request) {
+	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
+	// Preserve legacy X-Trace-ID header for pre-OTel workers.
+	if sc := oteltrace.SpanContextFromContext(ctx); sc.IsValid() {
+		if req.Header.Get("X-Trace-ID") == "" {
+			req.Header.Set("X-Trace-ID", sc.TraceID().String())
+		}
+	}
+}
+
+// ExtractContext reads incoming tracing headers from req and returns a
+// context whose parent span context is populated. Safe to call even if
+// no headers are present.
+func ExtractContext(ctx context.Context, req *http.Request) context.Context {
+	return otel.GetTextMapPropagator().Extract(ctx, propagation.HeaderCarrier(req.Header))
+}
+
+// ExtractFromRequest is kept for backward compatibility. It returns a child
+// context derived from the request's own context with any parent span context
+// extracted from standard headers. If only the legacy X-Trace-ID header is
+// present it synthesizes a remote span context so child spans inherit it.
+func ExtractFromRequest(r *http.Request) context.Context {
+	ctx := ExtractContext(r.Context(), r)
+	if oteltrace.SpanContextFromContext(ctx).IsValid() {
+		return ctx
+	}
+	if raw := r.Header.Get("X-Trace-ID"); raw != "" {
+		if tid := parseTraceID(raw); tid.IsValid() {
+			sc := oteltrace.NewSpanContext(oteltrace.SpanContextConfig{
+				TraceID:    tid,
+				SpanID:     newSpanID(),
+				TraceFlags: oteltrace.FlagsSampled,
+				Remote:     true,
+			})
+			ctx = oteltrace.ContextWithRemoteSpanContext(ctx, sc)
+		}
+	}
+	return ctx
+}
+
+// ParseTraceparent is kept for backward compatibility with earlier versions
+// of this package.
 func ParseTraceparent(header string) (traceID, spanID string, ok bool) {
 	parts := strings.Split(header, "-")
 	if len(parts) < 4 || parts[0] != "00" {
@@ -85,25 +173,46 @@ func ParseTraceparent(header string) (traceID, spanID string, ok bool) {
 	return parts[1], parts[2], true
 }
 
-// InjectHeaders adds trace context to outgoing HTTP request headers.
-func InjectHeaders(ctx context.Context, req *http.Request) {
-	if s, ok := ctx.Value(ctxKey{}).(*Span); ok {
-		req.Header.Set("Traceparent", s.Traceparent())
-		req.Header.Set("X-Trace-ID", s.TraceID)
-	}
+// NewTraceID generates a random 128-bit trace ID in hex form. Exposed for
+// callers that want to stamp task.TraceID before any OTel span is started.
+func NewTraceID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
-// ExtractFromRequest creates a span context from incoming HTTP request headers.
-func ExtractFromRequest(r *http.Request) context.Context {
-	ctx := r.Context()
-	if tp := r.Header.Get("Traceparent"); tp != "" {
-		if traceID, spanID, ok := ParseTraceparent(tp); ok {
-			parent := &Span{TraceID: traceID, SpanID: spanID}
-			ctx = context.WithValue(ctx, ctxKey{}, parent)
+// NewSpanID generates a random 64-bit span ID in hex form.
+func NewSpanID() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// parseTraceID converts a 32-char hex string to an OTel TraceID. Returns the
+// zero value (invalid) on parse failure, which callers must check with
+// TraceID.IsValid().
+func parseTraceID(raw string) oteltrace.TraceID {
+	var zero oteltrace.TraceID
+	raw = strings.TrimSpace(raw)
+	if len(raw) != 32 {
+		// Pad shorter values (e.g. legacy "abc123") deterministically so
+		// they still produce a stable valid trace ID.
+		if len(raw) == 0 || len(raw) > 32 {
+			return zero
 		}
-	} else if traceID := r.Header.Get("X-Trace-ID"); traceID != "" {
-		parent := &Span{TraceID: traceID, SpanID: NewSpanID()}
-		ctx = context.WithValue(ctx, ctxKey{}, parent)
+		raw = strings.Repeat("0", 32-len(raw)) + raw
 	}
-	return ctx
+	tid, err := oteltrace.TraceIDFromHex(raw)
+	if err != nil {
+		return zero
+	}
+	return tid
+}
+
+func newSpanID() oteltrace.SpanID {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	var sid oteltrace.SpanID
+	copy(sid[:], b)
+	return sid
 }

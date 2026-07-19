@@ -21,6 +21,7 @@ curl -X POST http://localhost:8080/api/v1/orgs/org-123/webhooks \
 |-------|------|
 | `task.completed` | Task finished successfully |
 | `task.failed` | Task failed |
+| `task.cancelled` | Task was cancelled |
 | `task.dispatched` | Task sent to a worker |
 | `worker.registered` | New worker joined |
 | `worker.deregistered` | Worker left |

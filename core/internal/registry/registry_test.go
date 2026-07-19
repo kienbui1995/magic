@@ -1,6 +1,7 @@
 package registry_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ func addToken(t *testing.T, s store.Store, orgID string) (rawToken string, tok *
 		Name:      "test-token",
 		CreatedAt: time.Now(),
 	}
-	if err := s.AddWorkerToken(tok); err != nil {
+	if err := s.AddWorkerToken(context.Background(), tok); err != nil {
 		t.Fatalf("AddWorkerToken: %v", err)
 	}
 	return raw, tok
@@ -52,7 +53,7 @@ func TestRegistry_Register(t *testing.T) {
 		t.Errorf("status: got %q, want active", worker.Status)
 	}
 
-	got, err := s.GetWorker(worker.ID)
+	got, err := s.GetWorker(context.Background(), worker.ID)
 	if err != nil {
 		t.Fatalf("GetWorker: %v", err)
 	}
@@ -83,7 +84,7 @@ func TestRegistry_Heartbeat(t *testing.T) {
 		t.Fatalf("Heartbeat: %v", err)
 	}
 
-	got, _ := s.GetWorker(worker.ID)
+	got, _ := s.GetWorker(context.Background(), worker.ID)
 	if got.CurrentLoad != 2 {
 		t.Errorf("CurrentLoad: got %d, want 2", got.CurrentLoad)
 	}
@@ -105,7 +106,7 @@ func TestRegistry_Deregister(t *testing.T) {
 		t.Fatalf("Deregister: %v", err)
 	}
 
-	_, err = s.GetWorker(worker.ID)
+	_, err = s.GetWorker(context.Background(), worker.ID)
 	if err == nil {
 		t.Error("worker should be removed")
 	}
@@ -123,9 +124,9 @@ func TestRegistry_HeartbeatCannotOverridePaused(t *testing.T) {
 	worker, _ := reg.Register(payload)
 
 	// Simulate cost controller pausing the worker
-	w, _ := s.GetWorker(worker.ID)
+	w, _ := s.GetWorker(context.Background(), worker.ID)
 	w.Status = protocol.StatusPaused
-	s.UpdateWorker(w)
+	s.UpdateWorker(context.Background(), w)
 
 	// Heartbeat tries to set status back to active
 	err := reg.Heartbeat(protocol.HeartbeatPayload{
@@ -137,7 +138,7 @@ func TestRegistry_HeartbeatCannotOverridePaused(t *testing.T) {
 		t.Fatalf("Heartbeat: %v", err)
 	}
 
-	got, _ := s.GetWorker(worker.ID)
+	got, _ := s.GetWorker(context.Background(), worker.ID)
 	if got.Status != protocol.StatusPaused {
 		t.Errorf("Status: got %q, want paused (heartbeat should not override)", got.Status)
 	}
@@ -258,7 +259,7 @@ func TestRegister_RevokedToken(t *testing.T) {
 	// Revoke the token
 	now := time.Now()
 	tok.RevokedAt = &now
-	if err := s.UpdateWorkerToken(tok); err != nil {
+	if err := s.UpdateWorkerToken(context.Background(), tok); err != nil {
 		t.Fatalf("UpdateWorkerToken: %v", err)
 	}
 
@@ -287,7 +288,7 @@ func TestRegister_ExpiredToken(t *testing.T) {
 		CreatedAt: time.Now().Add(-2 * time.Hour),
 		ExpiresAt: &past,
 	}
-	if err := s.AddWorkerToken(tok); err != nil {
+	if err := s.AddWorkerToken(context.Background(), tok); err != nil {
 		t.Fatalf("AddWorkerToken: %v", err)
 	}
 
@@ -310,7 +311,7 @@ func TestRegister_AlreadyBoundToken(t *testing.T) {
 
 	// Bind the token to an existing worker ID
 	tok.WorkerID = protocol.GenerateID("worker")
-	if err := s.UpdateWorkerToken(tok); err != nil {
+	if err := s.UpdateWorkerToken(context.Background(), tok); err != nil {
 		t.Fatalf("UpdateWorkerToken: %v", err)
 	}
 
@@ -344,7 +345,7 @@ func TestRegister_SetsOrgID(t *testing.T) {
 	if worker.OrgID != "org_beta" {
 		t.Errorf("returned worker OrgID: got %q, want org_beta", worker.OrgID)
 	}
-	stored, err := s.GetWorker(worker.ID)
+	stored, err := s.GetWorker(context.Background(), worker.ID)
 	if err != nil {
 		t.Fatalf("GetWorker: %v", err)
 	}
@@ -380,7 +381,7 @@ func TestHeartbeat_ValidToken(t *testing.T) {
 		t.Fatalf("Heartbeat: %v", err)
 	}
 
-	got, _ := s.GetWorker(worker.ID)
+	got, _ := s.GetWorker(context.Background(), worker.ID)
 	if got.CurrentLoad != 1 {
 		t.Errorf("CurrentLoad: got %d, want 1", got.CurrentLoad)
 	}
@@ -438,7 +439,7 @@ func TestHeartbeat_RevokedToken_SecurityMode(t *testing.T) {
 	now := time.Now()
 	tok.RevokedAt = &now
 	tok.WorkerID = worker.ID
-	if err := s.UpdateWorkerToken(tok); err != nil {
+	if err := s.UpdateWorkerToken(context.Background(), tok); err != nil {
 		t.Fatalf("UpdateWorkerToken: %v", err)
 	}
 
@@ -477,7 +478,7 @@ func TestHeartbeat_DevMode(t *testing.T) {
 		t.Fatalf("Heartbeat in dev mode: %v", err)
 	}
 
-	got, _ := s.GetWorker(worker.ID)
+	got, _ := s.GetWorker(context.Background(), worker.ID)
 	if got.CurrentLoad != 3 {
 		t.Errorf("CurrentLoad: got %d, want 3", got.CurrentLoad)
 	}

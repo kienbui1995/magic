@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kienbui1995/magic/core/internal/auth"
+	"github.com/kienbui1995/magic/core/internal/events"
 	"github.com/kienbui1995/magic/core/internal/monitor"
 	"github.com/kienbui1995/magic/core/internal/protocol"
 	"github.com/kienbui1995/magic/core/internal/store"
@@ -90,9 +93,9 @@ func paginate[T any](items []T, limit, offset int) []T {
 
 func (g *Gateway) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":  "ok",
-		"version": "0.1.0",
-		"time":    time.Now().Format(time.RFC3339),
+		"status":           "ok",
+		"protocol_version": protocol.ProtocolVersion,
+		"time":             time.Now().Format(time.RFC3339),
 	})
 }
 
@@ -100,6 +103,15 @@ func (g *Gateway) handleRegisterWorker(w http.ResponseWriter, r *http.Request) {
 	var payload protocol.RegisterPayload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if errs := validateRequest(
+		required("name", payload.Name),
+		maxLen("name", payload.Name, 255),
+		required("endpoint.url", payload.Endpoint.URL),
+	); len(errs) > 0 {
+		writeValidationError(w, errs)
 		return
 	}
 
@@ -178,6 +190,17 @@ func (g *Gateway) handleSubmitTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if errs := validateRequest(
+		required("type", task.Type),
+		maxLen("type", task.Type, 255),
+		oneOf("priority", task.Priority,
+			protocol.PriorityLow, protocol.PriorityNormal,
+			protocol.PriorityHigh, protocol.PriorityCritical),
+	); len(errs) > 0 {
+		writeValidationError(w, errs)
+		return
+	}
+
 	task.ID = protocol.GenerateID("task")
 	task.Status = protocol.TaskPending
 	task.CreatedAt = time.Now()
@@ -208,7 +231,7 @@ func (g *Gateway) handleSubmitTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	g.deps.Store.AddTask(&task) //nolint:errcheck
+	g.deps.Store.AddTask(r.Context(), &task) //nolint:errcheck
 
 	// Copy for async dispatch to avoid race condition (H-04)
 	taskCopy := task
@@ -232,18 +255,108 @@ func (g *Gateway) handleSubmitTask(w http.ResponseWriter, r *http.Request) {
 
 func (g *Gateway) handleListTasks(w http.ResponseWriter, r *http.Request) {
 	limit, offset := getPagination(r)
-	tasks := g.deps.Store.ListTasks()
+	tasks := g.deps.Store.ListTasks(r.Context())
 	writeJSON(w, http.StatusOK, paginate(tasks, limit, offset))
 }
 
 func (g *Gateway) handleGetTask(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	task, err := g.deps.Store.GetTask(id)
+	task, err := g.deps.Store.GetTask(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, task)
+}
+
+// callerOrgID extracts the authenticated org ID from the request context.
+// It mirrors the priority order used by rbacMiddleware and rlsScopeMiddleware:
+// OIDC claims first, then worker token.  Returns "" in dev/anonymous mode.
+func callerOrgID(r *http.Request) string {
+	if c := auth.ClaimsFromContext(r.Context()); c != nil && c.OrgID != "" {
+		return c.OrgID
+	}
+	if token := TokenFromContext(r.Context()); token != nil {
+		return token.OrgID
+	}
+	return ""
+}
+
+// handleCancelTask atomically transitions a task to the cancelled state.
+// Returns 404 if the task does not exist, 409 if already terminal.
+//
+// Ownership is verified via a pre-flight GetTask (OrgID never changes after
+// creation so the read is safe). The status transition itself is handled by
+// Store.CancelTask in a single atomic operation, preventing the TOCTOU race
+// where a concurrent dispatcher completion could overwrite the cancelled status.
+// Hard cancellation of in-flight work requires worker cooperation and is out
+// of scope for this endpoint.
+func (g *Gateway) handleCancelTask(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	// Pre-flight: load task for ownership check. OrgID is immutable after
+	// creation so this read is not subject to the status TOCTOU race.
+	existing, err := g.deps.Store.GetTask(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if callerOrg := callerOrgID(r); callerOrg != "" && existing.Context.OrgID != "" && callerOrg != existing.Context.OrgID {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
+	}
+
+	// Atomic status transition — no TOCTOU window between check and update.
+	task, err := g.deps.Store.CancelTask(r.Context(), id)
+	if err != nil {
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			writeError(w, http.StatusNotFound, "task not found")
+		case errors.Is(err, store.ErrTaskTerminal):
+			writeError(w, http.StatusConflict, "task already in terminal state")
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to cancel task")
+		}
+		return
+	}
+	g.deps.Bus.Publish(events.Event{
+		Type:   "task.cancelled",
+		Source: "gateway",
+		Payload: map[string]any{
+			"task_id":   task.ID,
+			"worker_id": task.AssignedWorker,
+		},
+	})
+	writeJSON(w, http.StatusOK, task)
+}
+
+// handlePauseWorker transitions a worker to the paused state. Paused workers
+// are skipped by the router when selecting targets for new tasks.
+func (g *Gateway) handlePauseWorker(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if token := TokenFromContext(r.Context()); token != nil && token.WorkerID != id {
+		writeError(w, http.StatusForbidden, "token not authorized for this worker")
+		return
+	}
+	if err := g.deps.Registry.PauseWorker(r.Context(), id); err != nil {
+		writeError(w, http.StatusNotFound, "worker not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": protocol.StatusPaused})
+}
+
+// handleResumeWorker transitions a paused worker back to active.
+func (g *Gateway) handleResumeWorker(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if token := TokenFromContext(r.Context()); token != nil && token.WorkerID != id {
+		writeError(w, http.StatusForbidden, "token not authorized for this worker")
+		return
+	}
+	if err := g.deps.Registry.ResumeWorker(r.Context(), id); err != nil {
+		writeError(w, http.StatusNotFound, "worker not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": protocol.StatusActive})
 }
 
 func (g *Gateway) handleGetStats(w http.ResponseWriter, r *http.Request) {
@@ -324,7 +437,16 @@ func (g *Gateway) handleCreateTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	team, err := g.deps.OrgMgr.CreateTeam(req.Name, req.OrgID, req.DailyBudget)
+	if errs := validateRequest(
+		required("name", req.Name),
+		maxLen("name", req.Name, 255),
+		required("org_id", req.OrgID),
+	); len(errs) > 0 {
+		writeValidationError(w, errs)
+		return
+	}
+
+	team, err := g.deps.OrgMgr.CreateTeam(r.Context(), req.Name, req.OrgID, req.DailyBudget)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create team")
 		return
@@ -335,7 +457,7 @@ func (g *Gateway) handleCreateTeam(w http.ResponseWriter, r *http.Request) {
 
 func (g *Gateway) handleListTeams(w http.ResponseWriter, r *http.Request) {
 	limit, offset := getPagination(r)
-	teams := g.deps.OrgMgr.ListTeams()
+	teams := g.deps.OrgMgr.ListTeams(r.Context())
 	writeJSON(w, http.StatusOK, paginate(teams, limit, offset))
 }
 
@@ -359,7 +481,7 @@ func (g *Gateway) handleAddKnowledge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entry, err := g.deps.Knowledge.Add(req.Title, req.Content, req.Tags, req.Scope, req.ScopeID, req.CreatedBy)
+	entry, err := g.deps.Knowledge.Add(r.Context(), req.Title, req.Content, req.Tags, req.Scope, req.ScopeID, req.CreatedBy)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to add knowledge entry")
 		return
@@ -373,9 +495,9 @@ func (g *Gateway) handleSearchKnowledge(w http.ResponseWriter, r *http.Request) 
 	query := r.URL.Query().Get("q")
 	var entries []*protocol.KnowledgeEntry
 	if query != "" {
-		entries = g.deps.Knowledge.Search(query)
+		entries = g.deps.Knowledge.Search(r.Context(), query)
 	} else {
-		entries = g.deps.Knowledge.List()
+		entries = g.deps.Knowledge.List(r.Context())
 	}
 	writeJSON(w, http.StatusOK, paginate(entries, limit, offset))
 }
@@ -474,13 +596,13 @@ func (g *Gateway) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 		token.ExpiresAt = &exp
 	}
 
-	if err := g.deps.Store.AddWorkerToken(token); err != nil {
+	if err := g.deps.Store.AddWorkerToken(r.Context(), token); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create token")
 		return
 	}
 
 	reqID := w.Header().Get("X-Request-ID")
-	_ = g.deps.Store.AppendAudit(&protocol.AuditEntry{
+	_ = g.deps.Store.AppendAudit(r.Context(), &protocol.AuditEntry{
 		ID:        protocol.GenerateID("audit"),
 		Timestamp: time.Now(),
 		OrgID:     orgID,
@@ -506,7 +628,7 @@ func (g *Gateway) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 func (g *Gateway) handleListTokens(w http.ResponseWriter, r *http.Request) {
 	orgID := r.PathValue("orgID")
 	limit, offset := getPagination(r)
-	tokens := g.deps.Store.ListWorkerTokensByOrg(orgID)
+	tokens := g.deps.Store.ListWorkerTokensByOrg(r.Context(), orgID)
 	writeJSON(w, http.StatusOK, paginate(tokens, limit, offset))
 }
 
@@ -516,7 +638,7 @@ func (g *Gateway) handleRevokeToken(w http.ResponseWriter, r *http.Request) {
 	orgID := r.PathValue("orgID")
 	tokenID := r.PathValue("tokenID")
 
-	token, err := g.deps.Store.GetWorkerToken(tokenID)
+	token, err := g.deps.Store.GetWorkerToken(r.Context(), tokenID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "token not found")
 		return
@@ -530,13 +652,13 @@ func (g *Gateway) handleRevokeToken(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 	token.RevokedAt = &now
-	if err := g.deps.Store.UpdateWorkerToken(token); err != nil {
+	if err := g.deps.Store.UpdateWorkerToken(r.Context(), token); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to revoke token")
 		return
 	}
 
 	reqID := w.Header().Get("X-Request-ID")
-	_ = g.deps.Store.AppendAudit(&protocol.AuditEntry{
+	_ = g.deps.Store.AppendAudit(r.Context(), &protocol.AuditEntry{
 		ID:        protocol.GenerateID("audit"),
 		Timestamp: time.Now(),
 		OrgID:     orgID,
@@ -567,6 +689,9 @@ func (g *Gateway) handleQueryAudit(w http.ResponseWriter, r *http.Request) {
 			limit = v
 		}
 	}
+	if limit > 1000 {
+		limit = 1000
+	}
 	if o := q.Get("offset"); o != "" {
 		if v, err := strconv.Atoi(o); err == nil && v >= 0 {
 			offset = v
@@ -592,15 +717,16 @@ func (g *Gateway) handleQueryAudit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Get total count (no pagination)
+	// Get total count using a large limit so the count query is not capped.
+	// Limit=0 maps to the store default (100), which silently truncates totals.
 	countFilter := filter
-	countFilter.Limit = 0
+	countFilter.Limit = 10000
 	countFilter.Offset = 0
-	allEntries := g.deps.Store.QueryAudit(countFilter)
+	allEntries := g.deps.Store.QueryAudit(r.Context(), countFilter)
 	total := len(allEntries)
 
 	// Get paginated page
-	entries := g.deps.Store.QueryAudit(filter)
+	entries := g.deps.Store.QueryAudit(r.Context(), filter)
 	if entries == nil {
 		entries = []*protocol.AuditEntry{}
 	}
@@ -666,7 +792,7 @@ func (g *Gateway) handleStreamTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := g.deps.Store.AddTask(task); err != nil {
+	if err := g.deps.Store.AddTask(r.Context(), task); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create task")
 		return
 	}
@@ -711,15 +837,18 @@ func (g *Gateway) handleCreateWebhook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.URL == "" || len(req.Events) == 0 {
-		writeError(w, http.StatusBadRequest, "url and events are required")
+	if errs := validateRequest(
+		required("url", req.URL),
+		nonEmptySlice("events", req.Events),
+	); len(errs) > 0 {
+		writeValidationError(w, errs)
 		return
 	}
 	if err := validateWebhookURL(req.URL); err != nil {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid webhook URL: %v", err))
 		return
 	}
-	hook, err := g.deps.Webhook.CreateWebhook(orgID, req.URL, req.Events, req.Secret)
+	hook, err := g.deps.Webhook.CreateWebhook(r.Context(), orgID, req.URL, req.Events, req.Secret)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create webhook")
 		return
@@ -733,7 +862,7 @@ func (g *Gateway) handleCreateWebhook(w http.ResponseWriter, r *http.Request) {
 func (g *Gateway) handleListWebhooks(w http.ResponseWriter, r *http.Request) {
 	orgID := r.PathValue("orgID")
 	limit, offset := getPagination(r)
-	writeJSON(w, http.StatusOK, paginate(g.deps.Webhook.ListWebhooks(orgID), limit, offset))
+	writeJSON(w, http.StatusOK, paginate(g.deps.Webhook.ListWebhooks(r.Context(), orgID), limit, offset))
 }
 
 // handleDeleteWebhook removes a webhook by ID.
@@ -743,7 +872,7 @@ func (g *Gateway) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
 	webhookID := r.PathValue("webhookID")
 
 	// Verify org ownership before deleting
-	hook, err := g.deps.Store.GetWebhook(webhookID)
+	hook, err := g.deps.Store.GetWebhook(r.Context(), webhookID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "webhook not found")
 		return
@@ -753,7 +882,7 @@ func (g *Gateway) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := g.deps.Webhook.DeleteWebhook(webhookID); err != nil {
+	if err := g.deps.Webhook.DeleteWebhook(r.Context(), webhookID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete webhook")
 		return
 	}
@@ -763,16 +892,25 @@ func (g *Gateway) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
 // handleListWebhookDeliveries returns deliveries for a webhook.
 // GET /api/v1/orgs/{orgID}/webhooks/{webhookID}/deliveries
 func (g *Gateway) handleListWebhookDeliveries(w http.ResponseWriter, r *http.Request) {
+	orgID := r.PathValue("orgID")
 	webhookID := r.PathValue("webhookID")
+
+	// Verify that webhookID belongs to orgID before listing deliveries.
+	hook, err := g.deps.Store.GetWebhook(r.Context(), webhookID)
+	if err != nil || hook.OrgID != orgID {
+		writeError(w, http.StatusNotFound, "webhook not found")
+		return
+	}
+
 	limit, offset := getPagination(r)
-	writeJSON(w, http.StatusOK, paginate(g.deps.Webhook.ListDeliveries(webhookID), limit, offset))
+	writeJSON(w, http.StatusOK, paginate(g.deps.Webhook.ListDeliveries(r.Context(), webhookID), limit, offset))
 }
 
 // handleResubscribeStream returns the result of a completed/failed task as a single SSE event.
 // GET /api/v1/tasks/{id}/stream
 func (g *Gateway) handleResubscribeStream(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	task, err := g.deps.Store.GetTask(id)
+	task, err := g.deps.Store.GetTask(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
@@ -827,7 +965,7 @@ func (g *Gateway) handleCreateRoleBinding(w http.ResponseWriter, r *http.Request
 		return
 	}
 	// Check if binding already exists
-	if existing, err := g.deps.Store.FindRoleBinding(orgID, req.Subject); err == nil {
+	if existing, err := g.deps.Store.FindRoleBinding(r.Context(), orgID, req.Subject); err == nil {
 		writeJSON(w, http.StatusConflict, existing)
 		return
 	}
@@ -838,7 +976,7 @@ func (g *Gateway) handleCreateRoleBinding(w http.ResponseWriter, r *http.Request
 		Role:      req.Role,
 		CreatedAt: time.Now(),
 	}
-	if err := g.deps.Store.AddRoleBinding(rb); err != nil {
+	if err := g.deps.Store.AddRoleBinding(r.Context(), rb); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create role binding")
 		return
 	}
@@ -849,19 +987,19 @@ func (g *Gateway) handleCreateRoleBinding(w http.ResponseWriter, r *http.Request
 func (g *Gateway) handleListRoleBindings(w http.ResponseWriter, r *http.Request) {
 	orgID := r.PathValue("orgID")
 	limit, offset := getPagination(r)
-	writeJSON(w, http.StatusOK, paginate(g.deps.Store.ListRoleBindingsByOrg(orgID), limit, offset))
+	writeJSON(w, http.StatusOK, paginate(g.deps.Store.ListRoleBindingsByOrg(r.Context(), orgID), limit, offset))
 }
 
 // DELETE /api/v1/orgs/{orgID}/roles/{roleID}
 func (g *Gateway) handleDeleteRoleBinding(w http.ResponseWriter, r *http.Request) {
 	orgID := r.PathValue("orgID")
 	roleID := r.PathValue("roleID")
-	rb, err := g.deps.Store.GetRoleBinding(roleID)
+	rb, err := g.deps.Store.GetRoleBinding(r.Context(), roleID)
 	if err != nil || rb.OrgID != orgID {
 		writeError(w, http.StatusNotFound, "role binding not found")
 		return
 	}
-	if err := g.deps.Store.RemoveRoleBinding(roleID); err != nil {
+	if err := g.deps.Store.RemoveRoleBinding(r.Context(), roleID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete role binding")
 		return
 	}
@@ -894,7 +1032,7 @@ func (g *Gateway) handleCreatePolicy(w http.ResponseWriter, r *http.Request) {
 		Enabled:   req.Enabled,
 		CreatedAt: time.Now(),
 	}
-	if err := g.deps.Store.AddPolicy(p); err != nil {
+	if err := g.deps.Store.AddPolicy(r.Context(), p); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create policy")
 		return
 	}
@@ -905,14 +1043,14 @@ func (g *Gateway) handleCreatePolicy(w http.ResponseWriter, r *http.Request) {
 func (g *Gateway) handleListPolicies(w http.ResponseWriter, r *http.Request) {
 	orgID := r.PathValue("orgID")
 	limit, offset := getPagination(r)
-	writeJSON(w, http.StatusOK, paginate(g.deps.Store.ListPoliciesByOrg(orgID), limit, offset))
+	writeJSON(w, http.StatusOK, paginate(g.deps.Store.ListPoliciesByOrg(r.Context(), orgID), limit, offset))
 }
 
 // GET /api/v1/orgs/{orgID}/policies/{policyID}
 func (g *Gateway) handleGetPolicy(w http.ResponseWriter, r *http.Request) {
 	orgID := r.PathValue("orgID")
 	policyID := r.PathValue("policyID")
-	p, err := g.deps.Store.GetPolicy(policyID)
+	p, err := g.deps.Store.GetPolicy(r.Context(), policyID)
 	if err != nil || p.OrgID != orgID {
 		writeError(w, http.StatusNotFound, "policy not found")
 		return
@@ -924,7 +1062,7 @@ func (g *Gateway) handleGetPolicy(w http.ResponseWriter, r *http.Request) {
 func (g *Gateway) handleUpdatePolicy(w http.ResponseWriter, r *http.Request) {
 	orgID := r.PathValue("orgID")
 	policyID := r.PathValue("policyID")
-	existing, err := g.deps.Store.GetPolicy(policyID)
+	existing, err := g.deps.Store.GetPolicy(r.Context(), policyID)
 	if err != nil || existing.OrgID != orgID {
 		writeError(w, http.StatusNotFound, "policy not found")
 		return
@@ -947,7 +1085,7 @@ func (g *Gateway) handleUpdatePolicy(w http.ResponseWriter, r *http.Request) {
 	if req.Enabled != nil {
 		existing.Enabled = *req.Enabled
 	}
-	if err := g.deps.Store.UpdatePolicy(existing); err != nil {
+	if err := g.deps.Store.UpdatePolicy(r.Context(), existing); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update policy")
 		return
 	}
@@ -958,12 +1096,12 @@ func (g *Gateway) handleUpdatePolicy(w http.ResponseWriter, r *http.Request) {
 func (g *Gateway) handleDeletePolicy(w http.ResponseWriter, r *http.Request) {
 	orgID := r.PathValue("orgID")
 	policyID := r.PathValue("policyID")
-	p, err := g.deps.Store.GetPolicy(policyID)
+	p, err := g.deps.Store.GetPolicy(r.Context(), policyID)
 	if err != nil || p.OrgID != orgID {
 		writeError(w, http.StatusNotFound, "policy not found")
 		return
 	}
-	if err := g.deps.Store.RemovePolicy(policyID); err != nil {
+	if err := g.deps.Store.RemovePolicy(r.Context(), policyID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete policy")
 		return
 	}
@@ -972,6 +1110,6 @@ func (g *Gateway) handleDeletePolicy(w http.ResponseWriter, r *http.Request) {
 
 func (g *Gateway) handleListDLQ(w http.ResponseWriter, r *http.Request) {
 	limit, offset := getPagination(r)
-	all := g.deps.Store.ListDLQ()
+	all := g.deps.Store.ListDLQ(r.Context())
 	writeJSON(w, http.StatusOK, paginate(all, limit, offset))
 }

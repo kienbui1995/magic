@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"sort"
 	"strings"
 	"sync"
@@ -14,6 +15,8 @@ const maxAuditEntries = 10_000
 
 // MemoryStore is an in-memory implementation of the Store interface.
 // All methods use deep copies to prevent external mutations.
+// The ctx parameter is accepted for interface conformance; memory operations
+// are CPU-bound and do not meaningfully support cancellation.
 type MemoryStore struct {
 	mu                sync.RWMutex
 	workers           map[string]*protocol.Worker
@@ -52,14 +55,14 @@ func NewMemoryStore() *MemoryStore {
 	}
 }
 
-func (s *MemoryStore) AddWorker(w *protocol.Worker) error {
+func (s *MemoryStore) AddWorker(_ context.Context, w *protocol.Worker) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.workers[w.ID] = protocol.DeepCopyWorker(w)
 	return nil
 }
 
-func (s *MemoryStore) GetWorker(id string) (*protocol.Worker, error) {
+func (s *MemoryStore) GetWorker(_ context.Context, id string) (*protocol.Worker, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	w, ok := s.workers[id]
@@ -69,7 +72,7 @@ func (s *MemoryStore) GetWorker(id string) (*protocol.Worker, error) {
 	return protocol.DeepCopyWorker(w), nil
 }
 
-func (s *MemoryStore) UpdateWorker(w *protocol.Worker) error {
+func (s *MemoryStore) UpdateWorker(_ context.Context, w *protocol.Worker) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.workers[w.ID]; !ok {
@@ -79,7 +82,7 @@ func (s *MemoryStore) UpdateWorker(w *protocol.Worker) error {
 	return nil
 }
 
-func (s *MemoryStore) RemoveWorker(id string) error {
+func (s *MemoryStore) RemoveWorker(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.workers[id]; !ok {
@@ -89,7 +92,7 @@ func (s *MemoryStore) RemoveWorker(id string) error {
 	return nil
 }
 
-func (s *MemoryStore) ListWorkers() []*protocol.Worker {
+func (s *MemoryStore) ListWorkers(_ context.Context) []*protocol.Worker {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := make([]*protocol.Worker, 0, len(s.workers))
@@ -100,7 +103,7 @@ func (s *MemoryStore) ListWorkers() []*protocol.Worker {
 	return result
 }
 
-func (s *MemoryStore) FindWorkersByCapability(capability string) []*protocol.Worker {
+func (s *MemoryStore) FindWorkersByCapability(_ context.Context, capability string) []*protocol.Worker {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var result []*protocol.Worker
@@ -119,14 +122,14 @@ func (s *MemoryStore) FindWorkersByCapability(capability string) []*protocol.Wor
 	return result
 }
 
-func (s *MemoryStore) AddTask(t *protocol.Task) error {
+func (s *MemoryStore) AddTask(_ context.Context, t *protocol.Task) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tasks[t.ID] = protocol.DeepCopyTask(t)
 	return nil
 }
 
-func (s *MemoryStore) GetTask(id string) (*protocol.Task, error) {
+func (s *MemoryStore) GetTask(_ context.Context, id string) (*protocol.Task, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	t, ok := s.tasks[id]
@@ -136,7 +139,7 @@ func (s *MemoryStore) GetTask(id string) (*protocol.Task, error) {
 	return protocol.DeepCopyTask(t), nil
 }
 
-func (s *MemoryStore) UpdateTask(t *protocol.Task) error {
+func (s *MemoryStore) UpdateTask(_ context.Context, t *protocol.Task) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.tasks[t.ID]; !ok {
@@ -146,7 +149,31 @@ func (s *MemoryStore) UpdateTask(t *protocol.Task) error {
 	return nil
 }
 
-func (s *MemoryStore) ListTasks() []*protocol.Task {
+// CancelTask atomically transitions the task to cancelled under the write lock,
+// preventing the TOCTOU race between a concurrent dispatcher completion and a
+// user-initiated cancel.
+func (s *MemoryStore) CancelTask(_ context.Context, id string) (*protocol.Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tasks[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	switch t.Status {
+	case protocol.TaskCompleted, protocol.TaskFailed, protocol.TaskCancelled:
+		return nil, ErrTaskTerminal
+	}
+	now := time.Now()
+	t.Status = protocol.TaskCancelled
+	t.CompletedAt = &now
+	if t.Error == nil {
+		t.Error = &protocol.TaskError{Code: "cancelled", Message: "cancelled by user"}
+	}
+	s.tasks[id] = t
+	return protocol.DeepCopyTask(t), nil
+}
+
+func (s *MemoryStore) ListTasks(_ context.Context) []*protocol.Task {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := make([]*protocol.Task, 0, len(s.tasks))
@@ -157,14 +184,14 @@ func (s *MemoryStore) ListTasks() []*protocol.Task {
 	return result
 }
 
-func (s *MemoryStore) AddWorkflow(w *protocol.Workflow) error {
+func (s *MemoryStore) AddWorkflow(_ context.Context, w *protocol.Workflow) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.workflows[w.ID] = protocol.DeepCopyWorkflow(w)
 	return nil
 }
 
-func (s *MemoryStore) GetWorkflow(id string) (*protocol.Workflow, error) {
+func (s *MemoryStore) GetWorkflow(_ context.Context, id string) (*protocol.Workflow, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	w, ok := s.workflows[id]
@@ -174,7 +201,7 @@ func (s *MemoryStore) GetWorkflow(id string) (*protocol.Workflow, error) {
 	return protocol.DeepCopyWorkflow(w), nil
 }
 
-func (s *MemoryStore) UpdateWorkflow(w *protocol.Workflow) error {
+func (s *MemoryStore) UpdateWorkflow(_ context.Context, w *protocol.Workflow) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.workflows[w.ID]; !ok {
@@ -184,7 +211,7 @@ func (s *MemoryStore) UpdateWorkflow(w *protocol.Workflow) error {
 	return nil
 }
 
-func (s *MemoryStore) ListWorkflows() []*protocol.Workflow {
+func (s *MemoryStore) ListWorkflows(_ context.Context) []*protocol.Workflow {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := make([]*protocol.Workflow, 0, len(s.workflows))
@@ -195,14 +222,14 @@ func (s *MemoryStore) ListWorkflows() []*protocol.Workflow {
 	return result
 }
 
-func (s *MemoryStore) AddTeam(t *protocol.Team) error {
+func (s *MemoryStore) AddTeam(_ context.Context, t *protocol.Team) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.teams[t.ID] = protocol.DeepCopyTeam(t)
 	return nil
 }
 
-func (s *MemoryStore) GetTeam(id string) (*protocol.Team, error) {
+func (s *MemoryStore) GetTeam(_ context.Context, id string) (*protocol.Team, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	t, ok := s.teams[id]
@@ -212,7 +239,7 @@ func (s *MemoryStore) GetTeam(id string) (*protocol.Team, error) {
 	return protocol.DeepCopyTeam(t), nil
 }
 
-func (s *MemoryStore) UpdateTeam(t *protocol.Team) error {
+func (s *MemoryStore) UpdateTeam(_ context.Context, t *protocol.Team) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.teams[t.ID]; !ok {
@@ -222,7 +249,7 @@ func (s *MemoryStore) UpdateTeam(t *protocol.Team) error {
 	return nil
 }
 
-func (s *MemoryStore) RemoveTeam(id string) error {
+func (s *MemoryStore) RemoveTeam(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.teams[id]; !ok {
@@ -232,7 +259,7 @@ func (s *MemoryStore) RemoveTeam(id string) error {
 	return nil
 }
 
-func (s *MemoryStore) ListTeams() []*protocol.Team {
+func (s *MemoryStore) ListTeams(_ context.Context) []*protocol.Team {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := make([]*protocol.Team, 0, len(s.teams))
@@ -243,14 +270,14 @@ func (s *MemoryStore) ListTeams() []*protocol.Team {
 	return result
 }
 
-func (s *MemoryStore) AddKnowledge(k *protocol.KnowledgeEntry) error {
+func (s *MemoryStore) AddKnowledge(_ context.Context, k *protocol.KnowledgeEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.knowledge[k.ID] = protocol.DeepCopyKnowledge(k)
 	return nil
 }
 
-func (s *MemoryStore) GetKnowledge(id string) (*protocol.KnowledgeEntry, error) {
+func (s *MemoryStore) GetKnowledge(_ context.Context, id string) (*protocol.KnowledgeEntry, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	k, ok := s.knowledge[id]
@@ -260,7 +287,7 @@ func (s *MemoryStore) GetKnowledge(id string) (*protocol.KnowledgeEntry, error) 
 	return protocol.DeepCopyKnowledge(k), nil
 }
 
-func (s *MemoryStore) UpdateKnowledge(k *protocol.KnowledgeEntry) error {
+func (s *MemoryStore) UpdateKnowledge(_ context.Context, k *protocol.KnowledgeEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.knowledge[k.ID]; !ok {
@@ -270,7 +297,7 @@ func (s *MemoryStore) UpdateKnowledge(k *protocol.KnowledgeEntry) error {
 	return nil
 }
 
-func (s *MemoryStore) DeleteKnowledge(id string) error {
+func (s *MemoryStore) DeleteKnowledge(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.knowledge[id]; !ok {
@@ -280,7 +307,7 @@ func (s *MemoryStore) DeleteKnowledge(id string) error {
 	return nil
 }
 
-func (s *MemoryStore) ListKnowledge() []*protocol.KnowledgeEntry {
+func (s *MemoryStore) ListKnowledge(_ context.Context) []*protocol.KnowledgeEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := make([]*protocol.KnowledgeEntry, 0, len(s.knowledge))
@@ -291,7 +318,7 @@ func (s *MemoryStore) ListKnowledge() []*protocol.KnowledgeEntry {
 	return result
 }
 
-func (s *MemoryStore) SearchKnowledge(query string) []*protocol.KnowledgeEntry {
+func (s *MemoryStore) SearchKnowledge(_ context.Context, query string) []*protocol.KnowledgeEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var result []*protocol.KnowledgeEntry
@@ -344,7 +371,7 @@ func deepCopyAuditEntry(e *protocol.AuditEntry) *protocol.AuditEntry {
 
 // Worker tokens
 
-func (s *MemoryStore) AddWorkerToken(t *protocol.WorkerToken) error {
+func (s *MemoryStore) AddWorkerToken(_ context.Context, t *protocol.WorkerToken) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tokens[t.ID] = deepCopyWorkerToken(t)
@@ -353,7 +380,7 @@ func (s *MemoryStore) AddWorkerToken(t *protocol.WorkerToken) error {
 	return nil
 }
 
-func (s *MemoryStore) GetWorkerToken(id string) (*protocol.WorkerToken, error) {
+func (s *MemoryStore) GetWorkerToken(_ context.Context, id string) (*protocol.WorkerToken, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	t, ok := s.tokens[id]
@@ -363,7 +390,7 @@ func (s *MemoryStore) GetWorkerToken(id string) (*protocol.WorkerToken, error) {
 	return deepCopyWorkerToken(t), nil
 }
 
-func (s *MemoryStore) GetWorkerTokenByHash(hash string) (*protocol.WorkerToken, error) {
+func (s *MemoryStore) GetWorkerTokenByHash(_ context.Context, hash string) (*protocol.WorkerToken, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	id, ok := s.tokenIndex[hash]
@@ -377,7 +404,7 @@ func (s *MemoryStore) GetWorkerTokenByHash(hash string) (*protocol.WorkerToken, 
 	return deepCopyWorkerToken(t), nil
 }
 
-func (s *MemoryStore) UpdateWorkerToken(t *protocol.WorkerToken) error {
+func (s *MemoryStore) UpdateWorkerToken(_ context.Context, t *protocol.WorkerToken) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	existing, ok := s.tokens[t.ID]
@@ -392,7 +419,7 @@ func (s *MemoryStore) UpdateWorkerToken(t *protocol.WorkerToken) error {
 	return nil
 }
 
-func (s *MemoryStore) ListWorkerTokensByOrg(orgID string) []*protocol.WorkerToken {
+func (s *MemoryStore) ListWorkerTokensByOrg(_ context.Context, orgID string) []*protocol.WorkerToken {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var result []*protocol.WorkerToken
@@ -405,7 +432,7 @@ func (s *MemoryStore) ListWorkerTokensByOrg(orgID string) []*protocol.WorkerToke
 	return result
 }
 
-func (s *MemoryStore) ListWorkerTokensByWorker(workerID string) []*protocol.WorkerToken {
+func (s *MemoryStore) ListWorkerTokensByWorker(_ context.Context, workerID string) []*protocol.WorkerToken {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var result []*protocol.WorkerToken
@@ -418,7 +445,7 @@ func (s *MemoryStore) ListWorkerTokensByWorker(workerID string) []*protocol.Work
 	return result
 }
 
-func (s *MemoryStore) HasAnyWorkerTokens() bool {
+func (s *MemoryStore) HasAnyWorkerTokens(_ context.Context) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.hasTokens
@@ -426,7 +453,7 @@ func (s *MemoryStore) HasAnyWorkerTokens() bool {
 
 // Audit log
 
-func (s *MemoryStore) AppendAudit(e *protocol.AuditEntry) error {
+func (s *MemoryStore) AppendAudit(_ context.Context, e *protocol.AuditEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.auditLog = append(s.auditLog, deepCopyAuditEntry(e))
@@ -437,7 +464,7 @@ func (s *MemoryStore) AppendAudit(e *protocol.AuditEntry) error {
 	return nil
 }
 
-func (s *MemoryStore) QueryAudit(filter AuditFilter) []*protocol.AuditEntry {
+func (s *MemoryStore) QueryAudit(_ context.Context, filter AuditFilter) []*protocol.AuditEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -479,7 +506,7 @@ func (s *MemoryStore) QueryAudit(filter AuditFilter) []*protocol.AuditEntry {
 
 // Org-scoped queries
 
-func (s *MemoryStore) ListWorkersByOrg(orgID string) []*protocol.Worker {
+func (s *MemoryStore) ListWorkersByOrg(_ context.Context, orgID string) []*protocol.Worker {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var result []*protocol.Worker
@@ -493,7 +520,7 @@ func (s *MemoryStore) ListWorkersByOrg(orgID string) []*protocol.Worker {
 	return result
 }
 
-func (s *MemoryStore) ListTasksByOrg(orgID string) []*protocol.Task {
+func (s *MemoryStore) ListTasksByOrg(_ context.Context, orgID string) []*protocol.Task {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var result []*protocol.Task
@@ -506,7 +533,7 @@ func (s *MemoryStore) ListTasksByOrg(orgID string) []*protocol.Task {
 	return result
 }
 
-func (s *MemoryStore) FindWorkersByCapabilityAndOrg(capability, orgID string) []*protocol.Worker {
+func (s *MemoryStore) FindWorkersByCapabilityAndOrg(_ context.Context, capability, orgID string) []*protocol.Worker {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var result []*protocol.Worker
@@ -530,14 +557,14 @@ func (s *MemoryStore) FindWorkersByCapabilityAndOrg(capability, orgID string) []
 
 // --- Webhooks ---
 
-func (s *MemoryStore) AddWebhook(w *protocol.Webhook) error {
+func (s *MemoryStore) AddWebhook(_ context.Context, w *protocol.Webhook) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.webhooks[w.ID] = protocol.DeepCopyWebhook(w)
 	return nil
 }
 
-func (s *MemoryStore) GetWebhook(id string) (*protocol.Webhook, error) {
+func (s *MemoryStore) GetWebhook(_ context.Context, id string) (*protocol.Webhook, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	w, ok := s.webhooks[id]
@@ -547,7 +574,7 @@ func (s *MemoryStore) GetWebhook(id string) (*protocol.Webhook, error) {
 	return protocol.DeepCopyWebhook(w), nil
 }
 
-func (s *MemoryStore) UpdateWebhook(w *protocol.Webhook) error {
+func (s *MemoryStore) UpdateWebhook(_ context.Context, w *protocol.Webhook) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.webhooks[w.ID]; !ok {
@@ -557,7 +584,7 @@ func (s *MemoryStore) UpdateWebhook(w *protocol.Webhook) error {
 	return nil
 }
 
-func (s *MemoryStore) DeleteWebhook(id string) error {
+func (s *MemoryStore) DeleteWebhook(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.webhooks[id]; !ok {
@@ -567,7 +594,7 @@ func (s *MemoryStore) DeleteWebhook(id string) error {
 	return nil
 }
 
-func (s *MemoryStore) ListWebhooksByOrg(orgID string) []*protocol.Webhook {
+func (s *MemoryStore) ListWebhooksByOrg(_ context.Context, orgID string) []*protocol.Webhook {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var result []*protocol.Webhook
@@ -579,7 +606,7 @@ func (s *MemoryStore) ListWebhooksByOrg(orgID string) []*protocol.Webhook {
 	return result
 }
 
-func (s *MemoryStore) FindWebhooksByEvent(eventType string) []*protocol.Webhook {
+func (s *MemoryStore) FindWebhooksByEvent(_ context.Context, eventType string) []*protocol.Webhook {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var result []*protocol.Webhook
@@ -599,7 +626,7 @@ func (s *MemoryStore) FindWebhooksByEvent(eventType string) []*protocol.Webhook 
 
 // --- Webhook Deliveries ---
 
-func (s *MemoryStore) AddWebhookDelivery(d *protocol.WebhookDelivery) error {
+func (s *MemoryStore) AddWebhookDelivery(_ context.Context, d *protocol.WebhookDelivery) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cp := *d
@@ -607,7 +634,7 @@ func (s *MemoryStore) AddWebhookDelivery(d *protocol.WebhookDelivery) error {
 	return nil
 }
 
-func (s *MemoryStore) UpdateWebhookDelivery(d *protocol.WebhookDelivery) error {
+func (s *MemoryStore) UpdateWebhookDelivery(_ context.Context, d *protocol.WebhookDelivery) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.webhookDeliveries[d.ID]; !ok {
@@ -618,7 +645,7 @@ func (s *MemoryStore) UpdateWebhookDelivery(d *protocol.WebhookDelivery) error {
 	return nil
 }
 
-func (s *MemoryStore) ListPendingWebhookDeliveries() []*protocol.WebhookDelivery {
+func (s *MemoryStore) ListPendingWebhookDeliveries(_ context.Context) []*protocol.WebhookDelivery {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	now := time.Now()
@@ -636,14 +663,14 @@ func (s *MemoryStore) ListPendingWebhookDeliveries() []*protocol.WebhookDelivery
 
 // --- Role Bindings ---
 
-func (s *MemoryStore) AddRoleBinding(rb *protocol.RoleBinding) error {
+func (s *MemoryStore) AddRoleBinding(_ context.Context, rb *protocol.RoleBinding) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.roleBindings[rb.ID] = protocol.DeepCopyRoleBinding(rb)
 	return nil
 }
 
-func (s *MemoryStore) GetRoleBinding(id string) (*protocol.RoleBinding, error) {
+func (s *MemoryStore) GetRoleBinding(_ context.Context, id string) (*protocol.RoleBinding, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	rb, ok := s.roleBindings[id]
@@ -653,7 +680,7 @@ func (s *MemoryStore) GetRoleBinding(id string) (*protocol.RoleBinding, error) {
 	return protocol.DeepCopyRoleBinding(rb), nil
 }
 
-func (s *MemoryStore) RemoveRoleBinding(id string) error {
+func (s *MemoryStore) RemoveRoleBinding(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.roleBindings[id]; !ok {
@@ -663,7 +690,7 @@ func (s *MemoryStore) RemoveRoleBinding(id string) error {
 	return nil
 }
 
-func (s *MemoryStore) ListRoleBindingsByOrg(orgID string) []*protocol.RoleBinding {
+func (s *MemoryStore) ListRoleBindingsByOrg(_ context.Context, orgID string) []*protocol.RoleBinding {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var result []*protocol.RoleBinding
@@ -675,7 +702,7 @@ func (s *MemoryStore) ListRoleBindingsByOrg(orgID string) []*protocol.RoleBindin
 	return result
 }
 
-func (s *MemoryStore) FindRoleBinding(orgID, subject string) (*protocol.RoleBinding, error) {
+func (s *MemoryStore) FindRoleBinding(_ context.Context, orgID, subject string) (*protocol.RoleBinding, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, rb := range s.roleBindings {
@@ -688,14 +715,14 @@ func (s *MemoryStore) FindRoleBinding(orgID, subject string) (*protocol.RoleBind
 
 // --- Policies ---
 
-func (s *MemoryStore) AddPolicy(p *protocol.Policy) error {
+func (s *MemoryStore) AddPolicy(_ context.Context, p *protocol.Policy) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.policies[p.ID] = protocol.DeepCopyPolicy(p)
 	return nil
 }
 
-func (s *MemoryStore) GetPolicy(id string) (*protocol.Policy, error) {
+func (s *MemoryStore) GetPolicy(_ context.Context, id string) (*protocol.Policy, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	p, ok := s.policies[id]
@@ -705,7 +732,7 @@ func (s *MemoryStore) GetPolicy(id string) (*protocol.Policy, error) {
 	return protocol.DeepCopyPolicy(p), nil
 }
 
-func (s *MemoryStore) UpdatePolicy(p *protocol.Policy) error {
+func (s *MemoryStore) UpdatePolicy(_ context.Context, p *protocol.Policy) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.policies[p.ID]; !ok {
@@ -715,7 +742,7 @@ func (s *MemoryStore) UpdatePolicy(p *protocol.Policy) error {
 	return nil
 }
 
-func (s *MemoryStore) RemovePolicy(id string) error {
+func (s *MemoryStore) RemovePolicy(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.policies[id]; !ok {
@@ -725,7 +752,7 @@ func (s *MemoryStore) RemovePolicy(id string) error {
 	return nil
 }
 
-func (s *MemoryStore) ListPoliciesByOrg(orgID string) []*protocol.Policy {
+func (s *MemoryStore) ListPoliciesByOrg(_ context.Context, orgID string) []*protocol.Policy {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var result []*protocol.Policy
@@ -739,7 +766,7 @@ func (s *MemoryStore) ListPoliciesByOrg(orgID string) []*protocol.Policy {
 
 const maxDLQEntries = 10_000
 
-func (s *MemoryStore) AddDLQEntry(e *protocol.DLQEntry) error {
+func (s *MemoryStore) AddDLQEntry(_ context.Context, e *protocol.DLQEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.dlq = append(s.dlq, e)
@@ -749,7 +776,7 @@ func (s *MemoryStore) AddDLQEntry(e *protocol.DLQEntry) error {
 	return nil
 }
 
-func (s *MemoryStore) ListDLQ() []*protocol.DLQEntry {
+func (s *MemoryStore) ListDLQ(_ context.Context) []*protocol.DLQEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := make([]*protocol.DLQEntry, len(s.dlq))
@@ -757,14 +784,14 @@ func (s *MemoryStore) ListDLQ() []*protocol.DLQEntry {
 	return result
 }
 
-func (s *MemoryStore) AddPrompt(p *protocol.PromptTemplate) error {
+func (s *MemoryStore) AddPrompt(_ context.Context, p *protocol.PromptTemplate) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.prompts = append(s.prompts, p)
 	return nil
 }
 
-func (s *MemoryStore) ListPrompts() []*protocol.PromptTemplate {
+func (s *MemoryStore) ListPrompts(_ context.Context) []*protocol.PromptTemplate {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := make([]*protocol.PromptTemplate, len(s.prompts))
@@ -772,14 +799,14 @@ func (s *MemoryStore) ListPrompts() []*protocol.PromptTemplate {
 	return result
 }
 
-func (s *MemoryStore) AddMemoryTurn(sessionID string, turn *protocol.MemoryTurn) error {
+func (s *MemoryStore) AddMemoryTurn(_ context.Context, sessionID string, turn *protocol.MemoryTurn) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.memoryTurns[sessionID] = append(s.memoryTurns[sessionID], turn)
 	return nil
 }
 
-func (s *MemoryStore) GetMemoryTurns(sessionID string) []*protocol.MemoryTurn {
+func (s *MemoryStore) GetMemoryTurns(_ context.Context, sessionID string) []*protocol.MemoryTurn {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	turns := s.memoryTurns[sessionID]

@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -19,7 +20,7 @@ func TestAudit_Record_WritesToStore(t *testing.T) {
 	l := New(s, bus)
 	l.Record("org1", "worker1", "login", "session", "req1", "success", map[string]any{"ip": "1.2.3.4"})
 
-	entries := s.QueryAudit(store.AuditFilter{})
+	entries := s.QueryAudit(context.Background(), store.AuditFilter{})
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 audit entry, got %d", len(entries))
 	}
@@ -132,7 +133,7 @@ func TestAudit_SubscribeToEvents_WorkerRegistered(t *testing.T) {
 	// Give the async bus time to process
 	time.Sleep(100 * time.Millisecond)
 
-	entries := s.QueryAudit(store.AuditFilter{Action: "worker.registered"})
+	entries := s.QueryAudit(context.Background(), store.AuditFilter{Action: "worker.registered"})
 	if len(entries) == 0 {
 		t.Fatal("expected audit entry for worker.registered, got none")
 	}
@@ -164,7 +165,7 @@ func TestAudit_SubscribeToEvents_TaskRouted(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	entries := s.QueryAudit(store.AuditFilter{Action: "task.routed"})
+	entries := s.QueryAudit(context.Background(), store.AuditFilter{Action: "task.routed"})
 	if len(entries) == 0 {
 		t.Fatal("expected audit entry for task.routed, got none")
 	}

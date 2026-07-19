@@ -1,6 +1,7 @@
 package webhook
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -63,7 +64,7 @@ func TestManager_OnEvent_EnqueuesDelivery(t *testing.T) {
 	defer bus.Stop()
 
 	hook := newTestWebhook("http://example.com/hook", []string{"task.completed"}, "", true)
-	if err := s.AddWebhook(hook); err != nil {
+	if err := s.AddWebhook(context.Background(), hook); err != nil {
 		t.Fatalf("AddWebhook: %v", err)
 	}
 
@@ -79,11 +80,11 @@ func TestManager_OnEvent_EnqueuesDelivery(t *testing.T) {
 	})
 
 	waitFor(t, 500*time.Millisecond, func() bool {
-		deliveries := s.ListPendingWebhookDeliveries()
+		deliveries := s.ListPendingWebhookDeliveries(context.Background())
 		return len(deliveries) > 0
 	})
 
-	deliveries := s.ListPendingWebhookDeliveries()
+	deliveries := s.ListPendingWebhookDeliveries(context.Background())
 	if len(deliveries) != 1 {
 		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
 	}
@@ -105,7 +106,7 @@ func TestManager_OnEvent_IgnoresInactiveWebhook(t *testing.T) {
 	defer bus.Stop()
 
 	hook := newTestWebhook("http://example.com/hook", []string{"task.completed"}, "", false) // Active=false
-	if err := s.AddWebhook(hook); err != nil {
+	if err := s.AddWebhook(context.Background(), hook); err != nil {
 		t.Fatalf("AddWebhook: %v", err)
 	}
 
@@ -122,7 +123,7 @@ func TestManager_OnEvent_IgnoresInactiveWebhook(t *testing.T) {
 	// Give bus time to process
 	time.Sleep(100 * time.Millisecond)
 
-	deliveries := s.ListPendingWebhookDeliveries()
+	deliveries := s.ListPendingWebhookDeliveries(context.Background())
 	if len(deliveries) != 0 {
 		t.Errorf("expected no deliveries for inactive webhook, got %d", len(deliveries))
 	}
@@ -134,7 +135,7 @@ func TestManager_OnEvent_IgnoresNonMatchingEvent(t *testing.T) {
 	defer bus.Stop()
 
 	hook := newTestWebhook("http://example.com/hook", []string{"task.completed"}, "", true)
-	if err := s.AddWebhook(hook); err != nil {
+	if err := s.AddWebhook(context.Background(), hook); err != nil {
 		t.Fatalf("AddWebhook: %v", err)
 	}
 
@@ -151,10 +152,19 @@ func TestManager_OnEvent_IgnoresNonMatchingEvent(t *testing.T) {
 	// Give bus time to process
 	time.Sleep(100 * time.Millisecond)
 
-	deliveries := s.ListPendingWebhookDeliveries()
+	deliveries := s.ListPendingWebhookDeliveries(context.Background())
 	if len(deliveries) != 0 {
 		t.Errorf("expected no deliveries for non-matching event, got %d", len(deliveries))
 	}
+}
+
+// newTestSender returns a Sender with SSRF validation disabled.
+// Tests that call deliver() with a local httptest.Server URL need this
+// because validateDeliveryURL now correctly blocks loopback addresses.
+func newTestSender(s store.Store) *Sender {
+	sender := newSender(s)
+	sender.validateURL = func(string) error { return nil }
+	return sender
 }
 
 // --- Sender tests ---
@@ -167,16 +177,16 @@ func TestSender_Deliver_Success(t *testing.T) {
 
 	s := store.NewMemoryStore()
 	hook := newTestWebhook(srv.URL, []string{"task.completed"}, "", true)
-	if err := s.AddWebhook(hook); err != nil {
+	if err := s.AddWebhook(context.Background(), hook); err != nil {
 		t.Fatalf("AddWebhook: %v", err)
 	}
 
 	d := newTestDelivery(hook.ID, `{"type":"task.completed"}`, 0)
-	if err := s.AddWebhookDelivery(d); err != nil {
+	if err := s.AddWebhookDelivery(context.Background(), d); err != nil {
 		t.Fatalf("AddWebhookDelivery: %v", err)
 	}
 
-	sender := newSender(s)
+	sender := newTestSender(s)
 	sender.deliver(d, hook)
 
 	// The delivery object should be updated in memory (deliver modifies d directly)
@@ -199,17 +209,17 @@ func TestSender_Deliver_HMACSignature(t *testing.T) {
 
 	s := store.NewMemoryStore()
 	hook := newTestWebhook(srv.URL, []string{"task.completed"}, "mysecret", true)
-	if err := s.AddWebhook(hook); err != nil {
+	if err := s.AddWebhook(context.Background(), hook); err != nil {
 		t.Fatalf("AddWebhook: %v", err)
 	}
 
 	payload := `{"type":"task.completed","data":"test"}`
 	d := newTestDelivery(hook.ID, payload, 0)
-	if err := s.AddWebhookDelivery(d); err != nil {
+	if err := s.AddWebhookDelivery(context.Background(), d); err != nil {
 		t.Fatalf("AddWebhookDelivery: %v", err)
 	}
 
-	sender := newSender(s)
+	sender := newTestSender(s)
 	sender.deliver(d, hook)
 
 	if capturedSig == "" {
@@ -248,16 +258,16 @@ func TestSender_Deliver_NoSignatureWhenNoSecret(t *testing.T) {
 
 	s := store.NewMemoryStore()
 	hook := newTestWebhook(srv.URL, []string{"task.completed"}, "", true) // empty secret
-	if err := s.AddWebhook(hook); err != nil {
+	if err := s.AddWebhook(context.Background(), hook); err != nil {
 		t.Fatalf("AddWebhook: %v", err)
 	}
 
 	d := newTestDelivery(hook.ID, `{"type":"task.completed"}`, 0)
-	if err := s.AddWebhookDelivery(d); err != nil {
+	if err := s.AddWebhookDelivery(context.Background(), d); err != nil {
 		t.Fatalf("AddWebhookDelivery: %v", err)
 	}
 
-	sender := newSender(s)
+	sender := newTestSender(s)
 	sender.deliver(d, hook)
 
 	if sigHeaderPresent {
@@ -270,13 +280,13 @@ func TestSender_Deliver_NoSignatureWhenNoSecret(t *testing.T) {
 func TestSender_MarkFailed_ExponentialBackoff(t *testing.T) {
 	s := store.NewMemoryStore()
 	hook := newTestWebhook("http://example.com", []string{"task.completed"}, "", true)
-	if err := s.AddWebhook(hook); err != nil {
+	if err := s.AddWebhook(context.Background(), hook); err != nil {
 		t.Fatalf("AddWebhook: %v", err)
 	}
 
 	// First failure (Attempts was 0)
 	d := newTestDelivery(hook.ID, `{}`, 0)
-	if err := s.AddWebhookDelivery(d); err != nil {
+	if err := s.AddWebhookDelivery(context.Background(), d); err != nil {
 		t.Fatalf("AddWebhookDelivery: %v", err)
 	}
 
@@ -322,13 +332,13 @@ func TestSender_MarkFailed_ExponentialBackoff(t *testing.T) {
 func TestSender_MarkFailed_MaxAttempts_Dead(t *testing.T) {
 	s := store.NewMemoryStore()
 	hook := newTestWebhook("http://example.com", []string{"task.completed"}, "", true)
-	if err := s.AddWebhook(hook); err != nil {
+	if err := s.AddWebhook(context.Background(), hook); err != nil {
 		t.Fatalf("AddWebhook: %v", err)
 	}
 
 	// Set Attempts to maxAttempts-1 (4) so the next failure hits maxAttempts (5)
 	d := newTestDelivery(hook.ID, `{}`, maxAttempts-1)
-	if err := s.AddWebhookDelivery(d); err != nil {
+	if err := s.AddWebhookDelivery(context.Background(), d); err != nil {
 		t.Fatalf("AddWebhookDelivery: %v", err)
 	}
 

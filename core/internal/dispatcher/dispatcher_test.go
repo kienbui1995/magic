@@ -42,7 +42,7 @@ func TestDispatchStream_ProxiesSSE(t *testing.T) {
 		Status: protocol.TaskPending,
 		Input:  []byte(`{"message":"hi"}`),
 	}
-	if err := s.AddTask(task); err != nil {
+	if err := s.AddTask(context.Background(), task); err != nil {
 		t.Fatalf("AddTask: %v", err)
 	}
 

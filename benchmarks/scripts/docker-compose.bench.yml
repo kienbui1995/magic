@@ -1,0 +1,78 @@
+# Standalone bench stack for MagiC.
+#
+# Usage:
+#   docker compose -f docker-compose.bench.yml up -d
+#   # run load.py / worker.py from host against localhost:8080
+#   docker compose -f docker-compose.bench.yml down -v  # wipe volumes between runs
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: magic
+      POSTGRES_PASSWORD: magic
+      POSTGRES_DB: magic_bench
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data  # ephemeral: clean state every run
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U magic -d magic_bench"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  gateway:
+    build:
+      context: ../..
+      dockerfile: core/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      MAGIC_POSTGRES_URL: "postgres://magic:magic@postgres:5432/magic_bench?sslmode=disable"
+      MAGIC_PORT: "8080"
+      MAGIC_BENCH_MODE: "1"
+    ports:
+      - "8080:8080"
+    command: ["magic", "serve"]
+
+  # Three pre-baked echo workers so "bench stack up" gives you a useful
+  # default. Override by scaling or by running worker.py on the host.
+  worker-a:
+    image: python:3.12-slim
+    depends_on: [gateway]
+    working_dir: /w
+    volumes:
+      - ./:/w
+    environment:
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    command: >
+      sh -c "pip install -q httpx &&
+             python worker.py --gateway http://gateway:8080 --port 9100 --name bench-a"
+    ports:
+      - "9100:9100"
+
+  worker-b:
+    image: python:3.12-slim
+    depends_on: [gateway]
+    working_dir: /w
+    volumes:
+      - ./:/w
+    command: >
+      sh -c "pip install -q httpx &&
+             python worker.py --gateway http://gateway:8080 --port 9100 --name bench-b"
+    ports:
+      - "9101:9100"
+
+  worker-c:
+    image: python:3.12-slim
+    depends_on: [gateway]
+    working_dir: /w
+    volumes:
+      - ./:/w
+    command: >
+      sh -c "pip install -q httpx &&
+             python worker.py --gateway http://gateway:8080 --port 9100 --name bench-c"
+    ports:
+      - "9102:9100"
