@@ -3,7 +3,7 @@ WORKDIR /app
 COPY core/ ./core/
 RUN cd core && go build -o /magic ./cmd/magic
 
-FROM alpine:3.20
+FROM alpine:3.24
 RUN addgroup -S magic && adduser -S magic -G magic
 COPY --from=builder /magic /usr/local/bin/magic
 USER magic
