@@ -8,7 +8,7 @@ import httpx
 import pytest
 import respx
 
-from magic_ai_sdk.connectors.errors import AuthError, PermanentError, RateLimitError
+from magic_ai_sdk.connectors.errors import AuthError, PermanentError, RateLimitError, TransientError
 from zalo.connector import REFRESH_TOKEN_URL, SEND_MESSAGE_URL, ZaloConnector
 
 BASE_CONFIG = {
@@ -190,3 +190,41 @@ async def test_ensure_token_refresh_is_serialized_under_concurrency():
 
     assert refresh_calls == 1
     assert all(token == "refreshed-once" for token in results)
+
+
+@respx.mock
+async def test_token_refresh_invokes_persistence_callback():
+    """Zalo refresh tokens are single-use — the new pair must be handed to the
+    caller so it can be persisted, or a restart reloads the stale refresh_token."""
+    respx.post(REFRESH_TOKEN_URL).mock(
+        return_value=httpx.Response(200, json={"access_token": "new-tok", "refresh_token": "new-refresh", "expires_in": 3600})
+    )
+    saved = {}
+    conn = ZaloConnector({**BASE_CONFIG}, on_token_refreshed=saved.update)
+
+    await conn._refresh_access_token()
+
+    assert saved == {"access_token": "new-tok", "refresh_token": "new-refresh"}
+
+
+@respx.mock
+async def test_network_error_wrapped_as_transient():
+    respx.post(SEND_MESSAGE_URL).mock(side_effect=httpx.ConnectError("connection refused"))
+    conn = make_connector()
+    async with conn:
+        with pytest.raises(TransientError):
+            await conn.execute("send_text_message", {"user_id": "u1", "text": "hi"})
+
+
+def test_verify_webhook_signature_case_insensitive_header():
+    conn = make_connector()
+    body = json.dumps({"event_name": "user_send_text", "timestamp": "1234567890"}).encode()
+    sig = _sign("app-123", body, "1234567890", "oa-secret")
+    # lowercase header name, as some HTTP frameworks normalize to
+    assert conn.verify_webhook_signature({"x-zevent-signature": sig}, body) is True
+
+
+def test_verify_webhook_signature_rejects_non_dict_json():
+    conn = make_connector()
+    body = json.dumps(["not", "an", "object"]).encode()
+    assert conn.verify_webhook_signature({"X-ZEvent-Signature": "whatever"}, body) is False

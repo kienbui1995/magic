@@ -41,7 +41,7 @@ def serve(connector: ZaloConnector, on_event: OnEvent, host: str = "0.0.0.0", po
 
             raw_body = self.rfile.read(length)
 
-            if not connector.verify_webhook_signature(dict(self.headers), raw_body):
+            if not connector.verify_webhook_signature(self.headers, raw_body):
                 logger.warning("Rejected webhook with invalid signature")
                 self.send_error(401, "Invalid signature")
                 return
@@ -71,7 +71,7 @@ def serve(connector: ZaloConnector, on_event: OnEvent, host: str = "0.0.0.0", po
     server = ThreadingHTTPServer((host, port), Handler)
     logger.info("Zalo webhook server listening on %s:%d", host, port)
     try:
-        server.serve_forever()
+        server.serve_forever()  # NOSONAR python:S5332 — plain HTTP intentional; TLS terminates at the reverse proxy (see README)
     except KeyboardInterrupt:
         logger.info("Shutting down Zalo webhook server")
         server.shutdown()

@@ -45,7 +45,7 @@ class OrderStatus(str, Enum):
 class OrderItem(BaseModel):
     sku: Optional[str] = None
     name: str
-    quantity: int = 1
+    quantity: int = Field(default=1, ge=1)
     unit_price: float = 0.0
 
 

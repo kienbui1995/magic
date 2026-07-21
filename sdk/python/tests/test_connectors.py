@@ -3,12 +3,15 @@
 import time
 from typing import Any
 
+import httpx
 import pytest
+import respx
 
 from magic_ai_sdk.connectors import (
     ApiKeyAuth,
     BaseConnector,
     ConnectorRegistry,
+    OAuth2Auth,
     PermanentError,
     RateLimitError,
     TransientError,
@@ -116,10 +119,20 @@ def test_registry_evict_drops_cached_instance():
 # ---- AuthHandler ----
 
 
-def test_api_key_auth_sets_header():
+async def test_api_key_auth_sets_header():
     auth = ApiKeyAuth(key="secret123", header="Authorization", prefix="Bearer ")
-    kwargs = auth.apply({})
+    kwargs = await auth.apply({})
     assert kwargs["headers"]["Authorization"] == "Bearer secret123"
+
+
+@respx.mock
+async def test_oauth2_auth_apply_fetches_token_and_sets_header():
+    respx.post("https://auth.example.com/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "tok-1", "expires_in": 3600})
+    )
+    auth = OAuth2Auth(token_url="https://auth.example.com/token", client_id="cid", client_secret="secret")
+    kwargs = await auth.apply({})
+    assert kwargs["headers"]["Authorization"] == "Bearer tok-1"
 
 
 def test_webhook_signature_auth_verifies_hmac():

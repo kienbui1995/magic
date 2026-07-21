@@ -9,7 +9,7 @@ what keeps magic core platform-agnostic.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Mapping
 
 
 class BaseConnector(ABC):
@@ -45,7 +45,7 @@ class BaseConnector(ABC):
         """Cheap liveness check. Override for a real ping if the platform supports one."""
         return True
 
-    def verify_webhook_signature(self, headers: dict[str, str], raw_body: bytes) -> bool:
+    def verify_webhook_signature(self, headers: Mapping[str, str], raw_body: bytes) -> bool:
         """Validate an inbound webhook's signature. Override for webhook-based connectors."""
         raise NotImplementedError(f"{self.name} does not support webhooks")
 

@@ -22,7 +22,7 @@ import hashlib
 import hmac
 import json
 import time
-from typing import Any
+from typing import Any, Callable, Mapping
 
 import httpx
 
@@ -44,13 +44,18 @@ _TOKEN_EXPIRED_ERROR_CODES = {-203, -216}
 class ZaloConnector(BaseConnector):
     name = "zalo"
 
-    def __init__(self, config: dict[str, Any]):
+    def __init__(self, config: dict[str, Any], on_token_refreshed: Callable[[dict[str, str]], None] | None = None):
         super().__init__(config)
         self.app_id: str = config["app_id"]
         self.app_secret: str = config.get("app_secret", "")
         self.oa_secret_key: str = config.get("oa_secret_key", "")
         self._access_token: str = config.get("access_token", "")
         self._refresh_token: str = config.get("refresh_token", "")
+        # Zalo refresh tokens are single-use (rotated on every refresh): without
+        # persisting the new pair, a process restart reloads the stale refresh_token
+        # from static config and permanently breaks auth. Caller wires this to
+        # whatever storage it uses (DB, secret manager, config file...).
+        self._on_token_refreshed = on_token_refreshed
         # None = expiry unknown (token supplied directly via config, never refreshed by us yet).
         # We only proactively refresh once we've fetched a token ourselves and know its expiry.
         self._expires_at: float | None = None
@@ -90,6 +95,8 @@ class ZaloConnector(BaseConnector):
             self._access_token = data["access_token"]
             self._refresh_token = data.get("refresh_token", self._refresh_token)
             self._expires_at = time.monotonic() + float(data.get("expires_in", 3600)) - 30
+            if self._on_token_refreshed is not None:
+                self._on_token_refreshed({"access_token": self._access_token, "refresh_token": self._refresh_token})
 
     async def _ensure_token(self) -> str:
         async with self._token_lock:
@@ -101,7 +108,10 @@ class ZaloConnector(BaseConnector):
     async def _post(self, url: str, body: dict[str, Any]) -> dict[str, Any]:
         assert self._client is not None, "call connect() first"
         token = await self._ensure_token()
-        resp = await self._client.post(url, headers={"access_token": token}, json=body)
+        try:
+            resp = await self._client.post(url, headers={"access_token": token}, json=body)
+        except httpx.RequestError as e:
+            raise TransientError(f"network error calling Zalo API: {e}") from e
         if resp.status_code == 429:
             raise RateLimitError("Zalo API rate limited (HTTP 429)")
         if resp.status_code >= 500:
@@ -163,19 +173,23 @@ class ZaloConnector(BaseConnector):
             "text": common_data.get("text", ""),
         }
 
-    def verify_webhook_signature(self, headers: dict[str, str], raw_body: bytes) -> bool:
+    def verify_webhook_signature(self, headers: Mapping[str, str], raw_body: bytes) -> bool:
         if not self.oa_secret_key:
             raise AuthError("oa_secret_key not configured — cannot verify webhook signatures")
 
-        signature = headers.get("X-Zevent-Signature") or headers.get("X-ZEvent-Signature", "")
+        # headers.get() is exact-case; HTTP header names are case-insensitive and
+        # callers may pass a plain dict (not an email.message.Message), so scan.
+        signature = next((v for k, v in headers.items() if k.lower() == "x-zevent-signature"), "")
         if not signature:
             return False
 
         try:
             body_str = raw_body.decode("utf-8")
             payload = json.loads(body_str)
+            if not isinstance(payload, dict):
+                return False
             timestamp = str(payload.get("timestamp", ""))
-        except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+        except (UnicodeDecodeError, ValueError):
             return False
 
         mac_input = f"{self.app_id}{body_str}{timestamp}{self.oa_secret_key}"

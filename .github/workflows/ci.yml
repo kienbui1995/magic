@@ -111,7 +111,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install SDK
-        run: cd sdk/python && pip install -e ".[dev]"
+        run: cd sdk/python && pip install -e ".[dev,connectors]"
       - name: Lint
         run: cd sdk/python && pip install ruff && ruff check .
       - name: Test

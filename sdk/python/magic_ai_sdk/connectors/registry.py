@@ -2,7 +2,7 @@
 
 One process may serve many tenants (shops); each tenant needs its own
 connector instance (different Zalo OA access token, different Nhanh.vn
-API key). The registry keys instances by `tenant_id:connector_name` so
+API key). The registry keys instances by `(tenant_id, connector_name)` so
 tenants never share credentials or in-memory state.
 """
 
@@ -10,12 +10,14 @@ from typing import Any
 
 from magic_ai_sdk.connectors.base import BaseConnector
 
+_InstanceKey = tuple[str, str]
+
 
 class ConnectorRegistry:
     """Class-level registry: connector classes are process-global, instances are per-tenant."""
 
     _connectors: dict[str, type[BaseConnector]] = {}
-    _instances: dict[str, BaseConnector] = {}
+    _instances: dict[_InstanceKey, BaseConnector] = {}
 
     @classmethod
     def register(cls, name: str, connector_class: type[BaseConnector]) -> None:
@@ -34,7 +36,7 @@ class ConnectorRegistry:
         if name not in cls._connectors:
             raise ValueError(f"Connector '{name}' is not registered")
 
-        key = f"{tenant_id}:{name}"
+        key = (tenant_id, name)
         if key not in cls._instances:
             cls._instances[key] = cls._connectors[name](config)
         return cls._instances[key]
@@ -42,7 +44,7 @@ class ConnectorRegistry:
     @classmethod
     def evict(cls, name: str, tenant_id: str) -> None:
         """Drop a cached instance, e.g. after credentials rotate."""
-        cls._instances.pop(f"{tenant_id}:{name}", None)
+        cls._instances.pop((tenant_id, name), None)
 
     @classmethod
     def reset(cls) -> None:

@@ -18,8 +18,13 @@ class AuthHandler(ABC):
     """Base class for connector authentication strategies."""
 
     @abstractmethod
-    def apply(self, request_kwargs: dict[str, Any]) -> dict[str, Any]:
-        """Mutate/return httpx request kwargs (headers, params...) with credentials applied."""
+    async def apply(self, request_kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Mutate/return httpx request kwargs (headers, params...) with credentials applied.
+
+        Async so handlers that need to fetch/refresh a token first (OAuth2Auth)
+        share the exact same interface as ones that don't (ApiKeyAuth) — callers
+        can `await handler.apply(kwargs)` polymorphically either way.
+        """
 
 
 class ApiKeyAuth(AuthHandler):
@@ -30,7 +35,7 @@ class ApiKeyAuth(AuthHandler):
         self.header = header
         self.prefix = prefix
 
-    def apply(self, request_kwargs: dict[str, Any]) -> dict[str, Any]:
+    async def apply(self, request_kwargs: dict[str, Any]) -> dict[str, Any]:
         headers = dict(request_kwargs.get("headers") or {})
         headers[self.header] = f"{self.prefix}{self.key}"
         request_kwargs["headers"] = headers
@@ -73,8 +78,11 @@ class OAuth2Auth(AuthHandler):
         assert self._access_token is not None
         return self._access_token
 
-    def apply(self, request_kwargs: dict[str, Any]) -> dict[str, Any]:
-        raise NotImplementedError("OAuth2Auth requires async token() — call it explicitly before apply()")
+    async def apply(self, request_kwargs: dict[str, Any]) -> dict[str, Any]:
+        headers = dict(request_kwargs.get("headers") or {})
+        headers["Authorization"] = f"Bearer {await self.token()}"
+        request_kwargs["headers"] = headers
+        return request_kwargs
 
 
 class WebhookSignatureAuth:
