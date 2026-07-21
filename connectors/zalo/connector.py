@@ -17,7 +17,9 @@ Always re-check field names/limits against https://developers.zalo.me before pro
 Zalo's API has changed shape across versions.
 """
 
+import asyncio
 import hashlib
+import hmac
 import json
 import time
 from typing import Any
@@ -34,6 +36,10 @@ REFRESH_TOKEN_URL = "https://oauth.zaloapp.com/v4/oa/access_token"
 # current error code table at https://developers.zalo.me before relying on this.
 _RATE_LIMIT_ERROR_CODES = {-32, -128}
 
+# Zalo error codes meaning the access token is invalid/expired — worth a retry
+# with a freshly refreshed token rather than failing the caller outright.
+_TOKEN_EXPIRED_ERROR_CODES = {-203, -216}
+
 
 class ZaloConnector(BaseConnector):
     name = "zalo"
@@ -49,6 +55,9 @@ class ZaloConnector(BaseConnector):
         # We only proactively refresh once we've fetched a token ourselves and know its expiry.
         self._expires_at: float | None = None
         self._client: httpx.AsyncClient | None = None
+        # Zalo refresh tokens are single-use: two concurrent refreshes would have
+        # the second one fail against an already-invalidated token. Serialize.
+        self._token_lock = asyncio.Lock()
 
     async def connect(self) -> bool:
         if not self._access_token:
@@ -83,9 +92,10 @@ class ZaloConnector(BaseConnector):
             self._expires_at = time.monotonic() + float(data.get("expires_in", 3600)) - 30
 
     async def _ensure_token(self) -> str:
-        if self._expires_at is not None and time.monotonic() >= self._expires_at:
-            await self._refresh_access_token()
-        return self._access_token
+        async with self._token_lock:
+            if self._expires_at is not None and time.monotonic() >= self._expires_at:
+                await self._refresh_access_token()
+            return self._access_token
 
     @with_retry(max_attempts=3, base_delay=1.0)
     async def _post(self, url: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -100,6 +110,10 @@ class ZaloConnector(BaseConnector):
         error_code = data.get("error", 0)
         if error_code in _RATE_LIMIT_ERROR_CODES:
             raise RateLimitError(f"Zalo API rate limited: {data.get('message')}")
+        if error_code in _TOKEN_EXPIRED_ERROR_CODES:
+            async with self._token_lock:
+                self._expires_at = 0.0  # force refresh on next _ensure_token() call
+            raise TransientError(f"Zalo access token expired (error {error_code}): {data.get('message')}")
         if error_code:
             raise PermanentError(f"Zalo API error {error_code}: {data.get('message')}")
         return data
@@ -158,14 +172,15 @@ class ZaloConnector(BaseConnector):
             return False
 
         try:
-            payload = json.loads(raw_body)
+            body_str = raw_body.decode("utf-8")
+            payload = json.loads(body_str)
             timestamp = str(payload.get("timestamp", ""))
-        except (json.JSONDecodeError, ValueError):
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
             return False
 
-        mac_input = f"{self.app_id}{raw_body.decode()}{timestamp}{self.oa_secret_key}"
+        mac_input = f"{self.app_id}{body_str}{timestamp}{self.oa_secret_key}"
         expected = hashlib.sha256(mac_input.encode()).hexdigest()
-        return expected == signature
+        return hmac.compare_digest(expected, signature)
 
     def parse_webhook_event(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
         event_name = payload.get("event_name", "")

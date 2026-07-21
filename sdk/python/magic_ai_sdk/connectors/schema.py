@@ -62,10 +62,15 @@ class Order(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class MessageDirection(str, Enum):
+    INBOUND = "inbound"
+    OUTBOUND = "outbound"
+
+
 class Message(BaseModel):
     id: str
     conversation_id: str
-    direction: str  # "inbound" | "outbound"
+    direction: MessageDirection
     sender_id: str
     text: Optional[str] = None
     attachments: list[dict[str, Any]] = Field(default_factory=list)

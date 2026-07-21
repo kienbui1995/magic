@@ -29,7 +29,12 @@ def serve(connector: ZaloConnector, on_event: OnEvent, host: str = "0.0.0.0", po
                 self.send_error(400, "Missing Content-Length")
                 return
 
-            length = int(content_length)
+            try:
+                length = int(content_length)
+            except ValueError:
+                self.send_error(400, "Invalid Content-Length")
+                return
+
             if length > 1 * 1024 * 1024:
                 self.send_error(413, "Request too large")
                 return

@@ -1,5 +1,6 @@
 """Unit tests for ZaloConnector — HTTP calls are mocked via respx, no network."""
 
+import asyncio
 import hashlib
 import json
 
@@ -143,3 +144,49 @@ def test_map_to_common_schema_rejects_unknown_entity():
     conn = make_connector()
     with pytest.raises(PermanentError):
         conn.map_to_common_schema({}, "order")
+
+
+@respx.mock
+async def test_expired_token_error_triggers_transient_retry_with_refresh():
+    """Zalo error -203 (invalid/expired token) must force a refresh and retry,
+    not fail permanently — see connector.py's _TOKEN_EXPIRED_ERROR_CODES."""
+    respx.post(REFRESH_TOKEN_URL).mock(
+        return_value=httpx.Response(200, json={"access_token": "refreshed-token", "expires_in": 3600})
+    )
+    route = respx.post(SEND_MESSAGE_URL)
+    route.side_effect = [
+        httpx.Response(200, json={"error": -203, "message": "token expired"}),
+        httpx.Response(200, json={"error": 0}),
+    ]
+
+    conn = make_connector()
+    async with conn:
+        result = await conn.execute("send_text_message", {"user_id": "u1", "text": "hi"})
+
+    assert result == {"error": 0}
+    assert conn._access_token == "refreshed-token"
+    assert route.call_count == 2
+    assert route.calls[0].request.headers["access_token"] == "initial-access-token"
+    assert route.calls[1].request.headers["access_token"] == "refreshed-token"
+
+
+async def test_ensure_token_refresh_is_serialized_under_concurrency():
+    """Concurrent callers must not each trigger their own refresh — Zalo refresh
+    tokens are single-use, so a second concurrent refresh would fail."""
+    conn = make_connector()
+    conn._expires_at = 0.0
+    refresh_calls = 0
+
+    async def fake_refresh():
+        nonlocal refresh_calls
+        refresh_calls += 1
+        await asyncio.sleep(0.01)
+        conn._access_token = "refreshed-once"
+        conn._expires_at = 999999999.0
+
+    conn._refresh_access_token = fake_refresh
+
+    results = await asyncio.gather(*(conn._ensure_token() for _ in range(5)))
+
+    assert refresh_calls == 1
+    assert all(token == "refreshed-once" for token in results)
