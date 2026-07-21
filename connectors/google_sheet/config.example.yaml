@@ -1,0 +1,22 @@
+# Copy to config.yaml (gitignored) and fill in real values.
+#
+# 1. Tạo Service Account trên Google Cloud Console, bật Google Sheets API.
+# 2. Tải file JSON key của Service Account.
+# 3. Share Google Sheet với email của Service Account (vd:
+#    xxx@my-project.iam.gserviceaccount.com), quyền Editor.
+# 4. Copy nội dung file JSON key vào service_account_info bên dưới, hoặc
+#    dùng service_account_file trỏ tới đường dẫn file JSON.
+
+spreadsheet_id: "YOUR_SPREADSHEET_ID"  # lấy từ URL: /spreadsheets/d/<ID>/edit
+
+# Cách 1: nhúng trực tiếp nội dung JSON key
+service_account_info:
+  type: service_account
+  project_id: "your-project-id"
+  private_key_id: "..."
+  private_key: "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+  client_email: "xxx@your-project.iam.gserviceaccount.com"
+  token_uri: "https://oauth2.googleapis.com/token"
+
+# Cách 2 (thay cho service_account_info): trỏ tới file JSON key
+# service_account_file: "/path/to/service-account-key.json"
