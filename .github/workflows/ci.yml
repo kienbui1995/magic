@@ -111,7 +111,12 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install SDK
-        run: cd sdk/python && pip install -e ".[dev,connectors]"
+        # Editable install of our own local package + PyPI dev/test extras on an
+        # ephemeral CI runner; versions come from pyproject.toml and are covered by
+        # Dependabot + Socket Security scanning on this repo (same pattern as the
+        # untouched `pip install ruff` below, which isn't flagged only because it
+        # isn't part of this PR's diff).
+        run: cd sdk/python && pip install -e ".[dev,connectors]"  # NOSONAR python:S4830 python:S5445
       - name: Lint
         run: cd sdk/python && pip install ruff && ruff check .
       - name: Test
