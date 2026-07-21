@@ -1,0 +1,13 @@
+# Copy to config.yaml (gitignored) and fill in real values.
+# Get app_id / app_secret from https://developers.zalo.me (My Apps).
+# Get oa_secret_key from the OA's "Webhook" settings page (Official Account Manager).
+
+app_id: "YOUR_ZALO_APP_ID"
+app_secret: "YOUR_ZALO_APP_SECRET"       # used only to refresh access_token
+oa_secret_key: "YOUR_OA_SECRET_KEY"     # used only to verify webhook signatures
+access_token: "YOUR_INITIAL_ACCESS_TOKEN"
+refresh_token: "YOUR_INITIAL_REFRESH_TOKEN"
+
+webhook:
+  host: "0.0.0.0"
+  port: 9100
