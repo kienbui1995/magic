@@ -19,6 +19,7 @@ from typing import Any
 from urllib.parse import quote
 
 import httpx
+from google.auth.exceptions import GoogleAuthError
 from google.auth.transport import Request as GoogleAuthRequestBase
 from google.auth.transport import Response as GoogleAuthResponseBase
 from google.oauth2 import service_account
@@ -67,6 +68,25 @@ _CUSTOMER_FIELDS = ["id", "name", "phone", "email", "address"]
 _ORDER_FIELDS = ["id", "customer_id", "status", "total_amount", "shipping_fee", "created_at"]
 
 
+def _safe_float(value: Any) -> float:
+    """Malformed sheet cells shouldn't crash the whole mapping — fall back to 0.0."""
+    try:
+        return float(value) if value else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _as_dict(data: Any) -> dict[str, Any]:
+    """Workflows commonly pass a Pydantic Common Schema model here, not a raw dict."""
+    if isinstance(data, dict):
+        return data
+    if hasattr(data, "model_dump"):
+        return data.model_dump()
+    if hasattr(data, "dict"):
+        return data.dict()
+    raise PermanentError("common_data must be a dict or a Pydantic model")
+
+
 class GoogleSheetConnector(BaseConnector):
     name = "google_sheet"
 
@@ -90,7 +110,12 @@ class GoogleSheetConnector(BaseConnector):
 
     async def connect(self) -> bool:
         self._client = httpx.AsyncClient(timeout=15.0)
-        await self._ensure_token()
+        try:
+            await self._ensure_token()
+        except Exception:
+            await self._client.aclose()
+            self._client = None
+            raise
         return True
 
     async def disconnect(self) -> None:
@@ -107,24 +132,36 @@ class GoogleSheetConnector(BaseConnector):
 
     @with_retry(max_attempts=3, base_delay=1.0)
     async def _request(self, method: str, url: str, **kwargs: Any) -> dict[str, Any]:
-        assert self._client is not None, "call connect() first"
-        token = await self._ensure_token()
-        headers = {"Authorization": f"Bearer {token}"}
+        if self._client is None:
+            raise PermanentError("connector not connected — call connect() first")
+
         try:
+            token = await self._ensure_token()
+            headers = {"Authorization": f"Bearer {token}"}
             resp = await self._client.request(method, url, headers=headers, **kwargs)
         except httpx.RequestError as e:
             raise TransientError(f"network error calling Google Sheets API: {e}") from e
+        except GoogleAuthError as e:
+            # Covers RefreshError and friends — usually a permanently bad/revoked
+            # service account key, not something a retry will fix, so don't retry.
+            raise AuthError(f"Google auth error: {e}") from e
 
-        if resp.status_code == 200:
+        if resp.is_success:
             return resp.json() if resp.content else {}
 
         try:
             error = resp.json().get("error", {})
-        except (json.JSONDecodeError, ValueError):
+        except ValueError:
             error = {}
         status = error.get("status", "")
         message = error.get("message", f"HTTP {resp.status_code}")
 
+        if resp.status_code == 401:
+            # Token expired/revoked mid-flight (credentials.valid was true when we
+            # checked, but Google invalidated it since) — clear it so the retry
+            # forces a fresh refresh instead of reusing the same bad token.
+            self._credentials.token = None
+            raise TransientError(f"Google Sheets API token expired or invalid: {message}")
         if resp.status_code == 429 or status in _RATE_LIMIT_STATUSES:
             raise RateLimitError(f"Google Sheets API rate limited: {message}")
         if resp.status_code >= 500 or status in _TRANSIENT_STATUSES:
@@ -167,8 +204,10 @@ class GoogleSheetConnector(BaseConnector):
         raise PermanentError(f"unsupported operation: {operation}")
 
     def map_to_common_schema(self, raw_data: Any, entity_type: str) -> dict[str, Any]:
-        header: list[str] = raw_data["header"]
-        row: list[str] = raw_data["row"]
+        if not isinstance(raw_data, dict):
+            raise PermanentError("raw_data must be a dict with 'header' and 'row' keys")
+        header: list[str] = raw_data.get("header") or []
+        row: list[str] = raw_data.get("row") or []
         by_col = dict(zip(header, row + [""] * (len(header) - len(row))))
 
         if entity_type == "customer":
@@ -189,9 +228,11 @@ class GoogleSheetConnector(BaseConnector):
             items_raw = by_col.pop("items_json", "")
             if items_raw:
                 try:
-                    items = json.loads(items_raw)
-                except (json.JSONDecodeError, ValueError):
-                    items = []
+                    parsed = json.loads(items_raw)
+                except ValueError:
+                    parsed = None
+                if isinstance(parsed, list):
+                    items = parsed
             known = {f: by_col.pop(f, "") for f in _ORDER_FIELDS}
             return {
                 "id": known["id"] or "",
@@ -200,15 +241,17 @@ class GoogleSheetConnector(BaseConnector):
                 "customer_id": known["customer_id"] or None,
                 "status": known["status"] or "pending",
                 "items": items,
-                "total_amount": float(known["total_amount"] or 0),
-                "shipping_fee": float(known["shipping_fee"] or 0),
+                "total_amount": _safe_float(known["total_amount"]),
+                "shipping_fee": _safe_float(known["shipping_fee"]),
                 "created_at": known["created_at"] or None,
                 "metadata": by_col,
             }
 
         raise PermanentError(f"GoogleSheetConnector cannot map entity_type={entity_type!r}")
 
-    def map_from_common_schema(self, common_data: dict[str, Any], entity_type: str) -> list[str]:
+    def map_from_common_schema(self, common_data: Any, entity_type: str) -> list[str]:
+        common_data = _as_dict(common_data)
+
         if entity_type == "customer":
             fields = _CUSTOMER_FIELDS
         elif entity_type == "order":
@@ -219,7 +262,7 @@ class GoogleSheetConnector(BaseConnector):
         row = []
         for field in fields:
             if field == "items_json":
-                row.append(json.dumps(common_data.get("items", [])))
+                row.append(json.dumps(common_data.get("items") or []))
             else:
                 value = common_data.get(field, "")
                 row.append("" if value is None else str(value))

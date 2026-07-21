@@ -5,9 +5,10 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 import respx
+from google.auth.exceptions import RefreshError
 
 from google_sheet.connector import API_BASE, GoogleSheetConnector
-from magic_ai_sdk.connectors.errors import PermanentError, RateLimitError, TransientError
+from magic_ai_sdk.connectors.errors import AuthError, PermanentError, RateLimitError, TransientError
 
 CONFIG = {"spreadsheet_id": "sheet-123", "service_account_info": {"type": "service_account"}}
 
@@ -164,3 +165,87 @@ def test_map_to_common_schema_rejects_unknown_entity():
     conn = make_connector()
     with pytest.raises(PermanentError):
         conn.map_to_common_schema({"header": [], "row": []}, "case")
+
+
+def test_map_to_common_schema_rejects_non_dict_raw_data():
+    conn = make_connector()
+    with pytest.raises(PermanentError):
+        conn.map_to_common_schema(["not", "a", "dict"], "customer")
+
+
+def test_map_to_common_schema_ignores_non_list_items_json():
+    conn = make_connector()
+    raw = {
+        "header": ["id", "customer_id", "status", "total_amount", "shipping_fee", "created_at", "items_json"],
+        "row": ["O1", "C1", "pending", "0", "0", "", '{"not": "a list"}'],
+    }
+    result = conn.map_to_common_schema(raw, "order")
+    assert result["items"] == []
+
+
+def test_map_to_common_schema_malformed_amount_defaults_to_zero():
+    conn = make_connector()
+    raw = {
+        "header": ["id", "customer_id", "status", "total_amount", "shipping_fee", "created_at"],
+        "row": ["O1", "C1", "pending", "not-a-number", "also-bad", ""],
+    }
+    result = conn.map_to_common_schema(raw, "order")
+    assert result["total_amount"] == 0.0
+    assert result["shipping_fee"] == 0.0
+
+
+def test_map_from_common_schema_accepts_pydantic_like_model():
+    conn = make_connector()
+
+    class FakeModel:
+        def model_dump(self):
+            return {"id": "C1", "name": "Anh"}
+
+    row = conn.map_from_common_schema(FakeModel(), "customer")
+    assert row[0] == "C1"
+
+
+def test_map_from_common_schema_defaults_none_items_to_empty_list():
+    conn = make_connector()
+    row = conn.map_from_common_schema({"id": "O1", "items": None}, "order")
+    assert row[-1] == "[]"
+
+
+@respx.mock
+async def test_401_response_clears_token_and_raises_transient():
+    respx.get(f"{API_BASE}/sheet-123/values/A1").mock(
+        return_value=httpx.Response(401, json={"error": {"code": 401, "status": "UNAUTHENTICATED", "message": "bad token"}})
+    )
+    async with make_connector() as conn:
+        with pytest.raises(TransientError):
+            await conn.execute("read_range", {"range": "A1"})
+        assert conn._credentials.token is None
+
+
+async def test_connect_failure_closes_client_and_clears_it():
+    with patch("google_sheet.connector.service_account.Credentials.from_service_account_info") as m:
+        creds = _fake_credentials(valid=False)
+        creds.refresh.side_effect = RuntimeError("boom")
+        m.return_value = creds
+
+        conn = GoogleSheetConnector({**CONFIG})
+        with pytest.raises(RuntimeError):
+            await conn.connect()
+        assert conn._client is None
+
+
+async def test_request_without_connect_raises_permanent_error():
+    conn = make_connector()
+    with pytest.raises(PermanentError):
+        await conn.execute("read_range", {"range": "A1"})
+
+
+async def test_refresh_error_during_request_wrapped_as_auth_error():
+    """A revoked/invalid service account key isn't fixed by retrying — surface it
+    as AuthError so the caller stops instead of burning 3 retry attempts."""
+    conn = make_connector()
+    async with conn:
+        conn._credentials.valid = False
+        conn._credentials.refresh.side_effect = RefreshError("revoked")
+        with pytest.raises(AuthError):
+            await conn.execute("read_range", {"range": "A1"})
