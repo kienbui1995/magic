@@ -2,7 +2,7 @@
 
 import pytest
 
-from ecomops.extraction import extract, extract_order_code, extract_phone
+from ecomops.extraction import canonical_phone, extract, extract_order_code, extract_phone
 
 
 @pytest.mark.parametrize(
@@ -58,3 +58,21 @@ def test_prefixed_code_wins_over_bare_digits():
 def test_empty_message():
     info = extract("")
     assert info.order_code is None and info.phone is None
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("0987654321", "0987654321"),
+        ("+84987654321", "0987654321"),
+        ("84987654321", "0987654321"),
+        ("987654321", "0987654321"),
+        ("0987 654 321", "0987654321"),
+        ("+84 987-654-321", "0987654321"),
+        ("0847123456", "0847123456"),  # local number that merely starts with 084
+        ("khong phai so", None),
+        ("12345", None),
+    ],
+)
+def test_canonical_phone(value, expected):
+    assert canonical_phone(value) == expected

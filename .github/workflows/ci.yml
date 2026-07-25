@@ -122,7 +122,8 @@ jobs:
         # that connector's requirements rather than the SDK's extras.
         run: pip install -r connectors/google_sheet/requirements.txt  # NOSONAR python:S4830 python:S5445
       - name: Lint
-        run: pip install ruff && ruff check sdk/python connectors packs
+        # Same ephemeral-CI-runner rationale as the installs above.
+        run: pip install ruff && ruff check sdk/python connectors packs  # NOSONAR python:S4830 python:S5445
       - name: Test SDK
         run: cd sdk/python && pytest tests/ -v
       - name: Test connectors & packs

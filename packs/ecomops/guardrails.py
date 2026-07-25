@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Protocol
 
-from .extraction import PHONE_PATTERN
+from .extraction import PHONE_PATTERN, canonical_phone
 from .text import normalize
 
 EMAIL_PATTERN = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
@@ -73,9 +73,12 @@ class LeakedContactRule:
     name = "leaked_contact"
 
     def check(self, draft: str, context: GuardrailContext) -> list[GuardrailViolation]:
-        allowed_digits = {re.sub(r"\D", "", c) for c in context.allowed_contacts}
-        if context.customer_phone:
-            allowed_digits.add(re.sub(r"\D", "", context.customer_phone))
+        # Canonicalize both sides: a shop that configures its hotline as
+        # "+84987654321" must still match the "0987654321" the model wrote, or
+        # the guardrail blocks the shop's own number.
+        allowed_phones = {canonical_phone(c) for c in [*context.allowed_contacts, context.customer_phone or ""]}
+        allowed_phones.discard(None)
+
         allowed_emails = {c.lower() for c in context.allowed_contacts}
         if context.customer_email:
             allowed_emails.add(context.customer_email.lower())
@@ -83,7 +86,7 @@ class LeakedContactRule:
         violations = []
         for match in PHONE_PATTERN.finditer(draft):
             phone = f"0{match.group(1)}"
-            if phone not in allowed_digits and phone.lstrip("0") not in {d.lstrip("0") for d in allowed_digits}:
+            if phone not in allowed_phones:
                 violations.append(
                     GuardrailViolation(
                         self.name, Severity.BLOCK,

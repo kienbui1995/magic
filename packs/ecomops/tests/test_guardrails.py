@@ -44,10 +44,21 @@ def test_customers_own_phone_is_allowed():
     assert LeakedContactRule().check(draft, GuardrailContext(customer_phone="0901234567")) == []
 
 
-def test_shop_hotline_is_allowed():
+@pytest.mark.parametrize(
+    "configured_hotline",
+    ["0987654321", "+84987654321", "84987654321", "0987 654 321", "+84 987-654-321"],
+)
+def test_shop_hotline_is_allowed_however_it_is_configured(configured_hotline):
+    """A shop writing its hotline as +84… must not get its own number blocked."""
     draft = "Anh/chị gọi hotline 0987654321 giúp shop nhé."
-    ctx = GuardrailContext(customer_phone="0901234567", allowed_contacts=["0987654321"])
+    ctx = GuardrailContext(customer_phone="0901234567", allowed_contacts=[configured_hotline])
     assert LeakedContactRule().check(draft, ctx) == []
+
+
+def test_allowlisting_the_hotline_does_not_allow_every_number():
+    ctx = GuardrailContext(allowed_contacts=["+84987654321"])
+    violations = LeakedContactRule().check("Gọi chị Lan 0912345678 nhé", ctx)
+    assert violations and violations[0].evidence == "0912345678"
 
 
 def test_foreign_email_is_blocked():

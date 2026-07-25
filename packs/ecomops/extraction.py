@@ -26,6 +26,21 @@ class ExtractedInfo:
     phone: str | None = None
 
 
+def canonical_phone(value: str) -> str | None:
+    """Fold any spelling of a Vietnamese mobile number to local 0XXXXXXXXX form.
+
+    Handles "+84 987 654 321", "84987654321", "0987-654-321" and "987654321".
+    Returns None if it isn't a plausible VN mobile number, so callers can tell
+    "not a phone" apart from "a phone we normalized".
+    """
+    digits = re.sub(r"\D", "", value)
+    if digits.startswith("84"):
+        digits = "0" + digits[2:]
+    elif len(digits) == 9:
+        digits = "0" + digits
+    return digits if len(digits) == 10 and digits.startswith("0") else None
+
+
 def extract_phone(message: str) -> str | None:
     """Return the phone in local 0XXXXXXXXX form, whatever prefix was typed."""
     match = PHONE_PATTERN.search(message)
