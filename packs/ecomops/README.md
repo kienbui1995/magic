@@ -30,6 +30,7 @@ pytest packs/ecomops/tests
 | `intents.py` | Phân loại ý định: `RuleBasedIntentClassifier`, `LLMIntentClassifier`, `HybridIntentClassifier` |
 | `extraction.py` | Trích mã đơn hàng & số điện thoại từ tin nhắn |
 | `prompts.py` | Thư viện prompt tiếng Việt theo từng ý định |
+| `knowledge.py` | Lấy chính sách shop (phí ship, đổi trả…) cho model soạn tin |
 | `guardrails.py` | Chặn câu trả lời rủi ro trước khi gửi cho khách |
 | `workflow.py` | `EcomOpsWorkflow` — pipeline nối tất cả lại |
 
@@ -98,7 +99,45 @@ asyncio.run(main())
 Khi nào chuyển nhân viên: khiếu nại (`complaint`), độ tin cậy thấp, guardrail chặn,
 hoặc soạn tin lỗi.
 
-## 4. Demo end-to-end (Zalo + Google Sheet)
+## 4. Knowledge Base (bắt buộc nếu muốn trả lời phí ship / đổi trả)
+
+System prompt bắt model **chỉ được trả lời dựa trên phần "Dữ liệu"**. Nếu không
+cấp Knowledge Base thì câu hỏi về phí ship hay chính sách đổi trả sẽ không có gì
+để trả lời — bot chỉ có thể nói sẽ kiểm tra lại. Đây là chủ ý: thà nói "để shop
+kiểm tra" còn hơn bịa ra một con số.
+
+Hai cách cấp dữ liệu:
+
+**a) MagiC Knowledge Hub** (khuyến nghị — dùng chung với các workload khác):
+
+```bash
+cd packs
+MAGIC_URL=http://localhost:8080 MAGIC_API_KEY=your-key python -m ecomops.seed_knowledge
+# hoặc nạp chính sách thật của shop:
+python -m ecomops.seed_knowledge /duong/dan/chinh-sach-shop.yaml
+```
+
+```python
+from ecomops import MagicKnowledgeLookup
+wf = EcomOpsWorkflow(..., knowledge_lookup=MagicKnowledgeLookup(MAGIC_URL, MAGIC_API_KEY))
+```
+
+**b) File YAML tại chỗ** (shop không chạy Knowledge Hub / core in-memory):
+
+```python
+from ecomops import StaticKnowledgeLookup
+wf = EcomOpsWorkflow(..., knowledge_lookup=StaticKnowledgeLookup.from_yaml("chinh-sach-shop.yaml"))
+```
+
+Mỗi entry được gắn 2 tag: `ecomops` + topic (`shipping`, `return`, `order`,
+`product`, `complaint`). Lookup lọc theo cả hai, nên câu hỏi về phí ship không bị
+trả nhầm chính sách đổi trả, và cũng không kéo về kiến thức khác của tổ chức chỉ
+vì trùng từ khoá.
+
+> ⚠️ `sample_knowledge.yaml` là **dữ liệu mẫu để chạy thử**. Thay bằng chính sách
+> thật của shop trước khi dùng với khách — nội dung sai ở đây sẽ thành câu trả lời sai.
+
+## 5. Demo end-to-end (Zalo + Google Sheet)
 
 `example_worker.py` nối: webhook Zalo → tra đơn trong Google Sheet → trả lời có
 guardrail → gửi lại qua Zalo.
@@ -114,7 +153,7 @@ Sheet cần tab `Orders` với dòng header khớp Common Schema
 (`id`, `customer_id`, `status`, `total_amount`, `shipping_fee`, `created_at`) —
 xem `connectors/google_sheet/README.md`.
 
-## 5. Giới hạn hiện tại
+## 6. Giới hạn hiện tại
 
 - Từ khoá phân loại là **danh sách cố định trong code**, chưa cấu hình được qua file.
 - Chưa có Case Management (tạo case khi khiếu nại/đổi trả) — thuộc Tuần 3–4 của roadmap.
@@ -122,3 +161,9 @@ xem `connectors/google_sheet/README.md`.
   lớn nên thay bằng Nhanh.vn connector hoặc thêm cache.
 - Guardrail dựa trên cụm từ, không phải mô hình — bắt được các mẫu hứa hẹn phổ biến,
   nhưng không thay thế được người duyệt với các đơn giá trị cao.
+
+## 7. Chạy test
+
+```bash
+pytest packs/ecomops/tests
+```
