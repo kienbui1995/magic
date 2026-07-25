@@ -49,10 +49,20 @@ magic-claw/
 │       ├── knowledge/             # Shared knowledge hub + semantic search
 │       ├── webhook/               # Event-driven webhook delivery (at-least-once)
 │       └── audit/                 # Audit log
-├── sdk/python/                    # Python SDK
+├── sdk/python/                    # Python SDK (+ magic_ai_sdk/connectors/ = Connector Framework)
 ├── sdk/go/                        # Go SDK
+├── connectors/                    # Platform integrations, run as external workers
+│   ├── zalo/                      # Zalo OA — send/receive messages
+│   └── google_sheet/              # Google Sheets — orders & customers
+├── packs/                         # Vertical business workflows
+│   └── ecomops/                   # Customer service for VN online shops
 └── examples/                      # Example workers
 ```
+
+**connectors vs packs:** a connector answers "which platform" (API calls +
+Common Schema mapping, no business logic); a pack answers "which business
+process" (workflow logic, no hard-coded platform). Both run as external Python
+workers — neither lives in the Go core.
 
 ### Module Tiers
 
@@ -112,6 +122,11 @@ cd core && MAGIC_POSTGRES_URL="postgres://user:pass@localhost/magic" ./magic ser
 # Python SDK
 cd sdk/python && pip install -e ".[dev]"
 cd sdk/python && pytest
+
+# Connectors + packs (run from repo root — root pytest.ini supplies asyncio_mode)
+pip install -e 'sdk/python[dev,connectors]' -r connectors/google_sheet/requirements.txt
+pytest connectors packs
+ruff check sdk/python connectors packs
 ```
 
 ## Key Design Decisions

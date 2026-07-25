@@ -7,8 +7,8 @@ import json
 import httpx
 import pytest
 import respx
-
 from magic_ai_sdk.connectors.errors import AuthError, PermanentError, RateLimitError, TransientError
+
 from zalo.connector import REFRESH_TOKEN_URL, SEND_MESSAGE_URL, ZaloConnector
 
 BASE_CONFIG = {
