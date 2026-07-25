@@ -172,6 +172,6 @@ jobs:
         with:
           args: '-fmt sarif -out gosec-results.sarif ./core/...'
       - name: Upload SARIF to code-scanning
-        uses: github/codeql-action/upload-sarif@ff0a06e83cb2de871e5a09832bc6a81e7276941f  # v3.28.1
+        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a  # v3.28.1
         with:
           sarif_file: gosec-results.sarif
