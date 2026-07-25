@@ -12,7 +12,7 @@ core sạch và không phụ thuộc vào bất kỳ nền tảng cụ thể nà
 ```
 connectors/
 ├── zalo/            # Zalo OA Connector — nhận/gửi tin nhắn qua Zalo Official Account
-├── google_sheet/    # (sắp có) đọc/ghi đơn hàng, khách hàng qua Google Sheet
+├── google_sheet/    # Google Sheet Connector — đọc/ghi đơn hàng, khách hàng
 ├── nhanh/           # (sắp có) tích hợp Nhanh.vn
 └── base/            # (sắp có) tích hợp Base.vn
 ```
@@ -37,5 +37,6 @@ connectors/
 ```bash
 pip install -e sdk/python[connectors,dev]
 pip install -r connectors/zalo/requirements.txt
-pytest connectors/zalo/tests
+pip install -r connectors/google_sheet/requirements.txt
+pytest connectors/zalo/tests connectors/google_sheet/tests
 ```

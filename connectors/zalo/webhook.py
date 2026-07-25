@@ -48,7 +48,7 @@ def serve(connector: ZaloConnector, on_event: OnEvent, host: str = "0.0.0.0", po
 
             try:
                 payload = json.loads(raw_body)
-            except (json.JSONDecodeError, ValueError):
+            except ValueError:  # json.JSONDecodeError subclasses ValueError
                 self.send_error(400, "Invalid JSON")
                 return
 
