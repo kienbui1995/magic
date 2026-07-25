@@ -189,7 +189,7 @@ class ZaloConnector(BaseConnector):
             if not isinstance(payload, dict):
                 return False
             timestamp = str(payload.get("timestamp", ""))
-        except (UnicodeDecodeError, ValueError):
+        except ValueError:  # UnicodeDecodeError and JSONDecodeError both subclass ValueError
             return False
 
         mac_input = f"{self.app_id}{body_str}{timestamp}{self.oa_secret_key}"
