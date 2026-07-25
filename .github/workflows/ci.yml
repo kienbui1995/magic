@@ -122,9 +122,10 @@ jobs:
         # extras — google-auth for the Google Sheet connector, pyyaml for the
         # EcomOps knowledge base. Every requirements.txt under connectors/ and
         # packs/ is installed, so adding a new one needs no CI change.
-        run: |  # NOSONAR python:S4830 python:S5445
-          find connectors packs -name requirements.txt -print0 \
-            | xargs -0 -I{} pip install -r {}
+        # Kept on one line so the NOSONAR marker lands on the same line as the
+        # pip invocation — on a `run: |` block it sits on the YAML key instead
+        # and suppresses nothing.
+        run: find connectors packs -name requirements.txt -print0 | xargs -0 -I{} pip install -r {}  # NOSONAR python:S4830 python:S5445
       - name: Lint
         # Same ephemeral-CI-runner rationale as the installs above.
         run: pip install ruff && ruff check sdk/python connectors packs  # NOSONAR python:S4830 python:S5445
