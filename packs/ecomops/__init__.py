@@ -13,6 +13,7 @@ from .intents import (
     LLMIntentClassifier,
     RuleBasedIntentClassifier,
 )
+from .knowledge import MagicKnowledgeLookup, StaticKnowledgeLookup
 from .workflow import EcomOpsWorkflow, LLMDrafter, WorkflowResult
 
 __all__ = [
@@ -25,6 +26,8 @@ __all__ = [
     "GuardrailContext",
     "GuardrailViolation",
     "Severity",
+    "MagicKnowledgeLookup",
+    "StaticKnowledgeLookup",
     "EcomOpsWorkflow",
     "LLMDrafter",
     "WorkflowResult",

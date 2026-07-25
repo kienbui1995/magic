@@ -1,2 +1,5 @@
 # Install the framework first: pip install -e ../../sdk/python[connectors]
 httpx>=0.27
+# Reading sample_knowledge.yaml / a shop's own policy YAML, and the connector
+# configs in example_worker.py.
+pyyaml>=6.0

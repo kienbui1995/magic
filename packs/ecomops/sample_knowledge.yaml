@@ -1,0 +1,63 @@
+# Knowledge Base mẫu cho EcomOps.
+#
+# Đây là DỮ LIỆU MẪU để chạy thử — thay bằng chính sách thật của shop trước khi
+# dùng cho khách. Model chỉ được phép trả lời dựa trên nội dung ở đây (xem
+# SYSTEM_PROMPT trong prompts.py), nên nội dung sai ở đây sẽ thành câu trả lời sai.
+#
+# Mỗi khoá là một "topic" khớp với intent (xem INTENT_TOPICS trong knowledge.py):
+#   shipping | return | order | product | complaint
+#
+# Nạp vào MagiC Knowledge Hub:
+#   python -m ecomops.seed_knowledge
+
+shipping:
+  - >-
+    Phí ship nội thành Hà Nội và TP.HCM là 25.000đ, giao trong 1-2 ngày làm việc.
+  - >-
+    Phí ship các tỉnh khác là 35.000đ, thời gian giao dự kiến 3-5 ngày làm việc,
+    vùng sâu vùng xa có thể lâu hơn.
+  - >-
+    Miễn phí vận chuyển cho đơn hàng từ 500.000đ trở lên, áp dụng toàn quốc.
+
+return:
+  - >-
+    Shop hỗ trợ đổi trả trong vòng 7 ngày kể từ ngày khách nhận hàng, với điều kiện
+    sản phẩm còn nguyên tem mác, chưa qua sử dụng và còn đủ hộp/phụ kiện.
+  - >-
+    Trường hợp shop giao sai mẫu, sai size hoặc sản phẩm bị lỗi từ nhà sản xuất,
+    shop chịu toàn bộ phí đổi trả và phí vận chuyển hai chiều.
+  - >-
+    Trường hợp khách đổi vì lý do cá nhân (không thích, đổi ý), khách chịu phí
+    vận chuyển chiều đổi hàng.
+  - >-
+    Sản phẩm khuyến mãi trên 50% và đồ lót không áp dụng chính sách đổi trả,
+    trừ khi bị lỗi từ nhà sản xuất.
+
+order:
+  - >-
+    Các trạng thái đơn hàng: pending (chờ xác nhận), confirmed (đã xác nhận),
+    shipping (đang giao), delivered (đã giao), cancelled (đã huỷ),
+    returned (đã hoàn trả).
+  - >-
+    Đơn hàng được xác nhận trong vòng 24 giờ kể từ khi đặt. Sau khi chuyển sang
+    trạng thái shipping, khách có thể tra cứu vị trí đơn qua mã vận đơn.
+  - >-
+    Khách có thể huỷ đơn miễn phí khi đơn còn ở trạng thái pending hoặc confirmed.
+    Đơn đã chuyển sang shipping không huỷ được, khách có thể từ chối nhận hàng.
+
+product:
+  - >-
+    Thông tin size, màu và chất liệu của từng sản phẩm được ghi trong phần mô tả
+    trên trang sản phẩm. Nếu khách phân vân giữa hai size, shop khuyên chọn size
+    lớn hơn.
+  - >-
+    Tình trạng còn hàng thay đổi liên tục trong ngày. Shop cần kiểm tra kho trước
+    khi xác nhận cho khách.
+
+complaint:
+  - >-
+    Mọi khiếu nại đều được chuyển cho nhân viên phụ trách xử lý trong vòng
+    24 giờ làm việc. Nhân viên sẽ liên hệ lại với khách qua số điện thoại đặt hàng.
+  - >-
+    Phương án đền bù (hoàn tiền, đổi hàng, tặng voucher) chỉ do nhân viên quyết định
+    sau khi kiểm tra đơn — không cam kết trước với khách.

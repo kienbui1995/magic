@@ -118,9 +118,14 @@ jobs:
         # isn't part of this PR's diff).
         run: cd sdk/python && pip install -e ".[dev,connectors]"  # NOSONAR python:S4830 python:S5445
       - name: Install connector/pack deps
-        # google-auth is only needed by the Google Sheet connector, so it lives in
-        # that connector's requirements rather than the SDK's extras.
-        run: pip install -r connectors/google_sheet/requirements.txt  # NOSONAR python:S4830 python:S5445
+        # Deps that belong to a specific connector/pack rather than the SDK's
+        # extras — google-auth for the Google Sheet connector, pyyaml for the
+        # EcomOps knowledge base. Every requirements.txt under connectors/ and
+        # packs/ is installed, so adding a new one needs no CI change.
+        # Kept on one line so the NOSONAR marker lands on the same line as the
+        # pip invocation — on a `run: |` block it sits on the YAML key instead
+        # and suppresses nothing.
+        run: find connectors packs -name requirements.txt -print0 | xargs -0 -I{} pip install -r {}  # NOSONAR python:S4830 python:S5445
       - name: Lint
         # Same ephemeral-CI-runner rationale as the installs above.
         run: pip install ruff && ruff check sdk/python connectors packs  # NOSONAR python:S4830 python:S5445

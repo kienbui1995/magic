@@ -28,6 +28,7 @@ from zalo.connector import ZaloConnector  # noqa: E402
 from zalo.webhook import serve  # noqa: E402
 
 from ecomops.intents import HybridIntentClassifier, LLMIntentClassifier  # noqa: E402
+from ecomops.knowledge import MagicKnowledgeLookup  # noqa: E402
 from ecomops.workflow import EcomOpsWorkflow, LLMDrafter  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
@@ -89,6 +90,10 @@ def main() -> None:
         classifier=HybridIntentClassifier(llm=LLMIntentClassifier(MAGIC_URL, MAGIC_API_KEY)),
         drafter=LLMDrafter(MAGIC_URL, MAGIC_API_KEY),
         order_lookup=make_order_lookup(sheet),
+        # Chính sách shop lấy từ MagiC Knowledge Hub — nạp trước bằng
+        # `python -m ecomops.seed_knowledge`, nếu không câu hỏi về phí ship /
+        # đổi trả sẽ không có dữ liệu để trả lời.
+        knowledge_lookup=MagicKnowledgeLookup(MAGIC_URL, MAGIC_API_KEY),
         allowed_contacts=zalo_cfg.get("shop_hotlines", []),
     )
 
