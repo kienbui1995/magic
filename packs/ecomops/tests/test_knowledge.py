@@ -155,6 +155,65 @@ def test_every_sample_topic_is_reachable_from_an_intent():
     assert topics <= reachable, f"unreachable topics in sample_knowledge.yaml: {topics - reachable}"
 
 
+# ---- path validation ----
+#
+# seed_knowledge.py passes argv straight through, and everything read here ends
+# up POSTed into the Knowledge Hub — so an unvalidated path is an arbitrary-file
+# read that lands in a queryable store.
+
+
+def test_rejects_non_yaml_suffix(tmp_path):
+    secret = tmp_path / "passwd"
+    secret.write_text("root:x:0:0")
+    with pytest.raises(ValueError, match="must be .yaml"):
+        knowledge_entries_for_seeding(secret)
+
+
+def test_rejects_missing_file(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        knowledge_entries_for_seeding(tmp_path / "khong-ton-tai.yaml")
+
+
+def test_rejects_directory(tmp_path):
+    d = tmp_path / "policies.yaml"
+    d.mkdir()
+    with pytest.raises(FileNotFoundError):
+        knowledge_entries_for_seeding(d)
+
+
+def test_symlink_cannot_disguise_a_non_yaml_target(tmp_path):
+    """resolve() runs before the suffix check, so a .yaml symlink pointing at a
+    non-YAML file is judged by its real name."""
+    secret = tmp_path / "id_rsa"
+    secret.write_text("PRIVATE KEY")
+    link = tmp_path / "policy.yaml"
+    link.symlink_to(secret)
+
+    with pytest.raises(ValueError, match="must be .yaml"):
+        knowledge_entries_for_seeding(link)
+
+
+def test_traversal_is_normalized_and_still_checked(tmp_path):
+    with pytest.raises((ValueError, FileNotFoundError)):
+        knowledge_entries_for_seeding(tmp_path / ".." / ".." / "etc" / "passwd")
+
+
+def test_accepts_a_real_yaml_file(tmp_path):
+    policy = tmp_path / "chinh-sach.yaml"
+    policy.write_text("shipping:\n  - Phí ship 30k\n", encoding="utf-8")
+
+    payloads = knowledge_entries_for_seeding(policy)
+
+    assert [p["content"] for p in payloads] == ["Phí ship 30k"]
+
+
+def test_static_lookup_applies_the_same_validation(tmp_path):
+    secret = tmp_path / "secrets.env"
+    secret.write_text("TOKEN=abc")
+    with pytest.raises(ValueError, match="must be .yaml"):
+        StaticKnowledgeLookup.from_yaml(secret)
+
+
 @respx.mock
 async def test_seed_posts_every_entry():
     route = respx.post(KB_URL).mock(return_value=httpx.Response(200, json={"id": "k1"}))

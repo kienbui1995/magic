@@ -114,12 +114,38 @@ class StaticKnowledgeLookup:
         """
         import yaml
 
-        data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+        data = yaml.safe_load(_resolve_yaml_path(path).read_text(encoding="utf-8")) or {}
         return cls({str(k): [str(s) for s in (v or [])] for k, v in data.items()})
 
 
 def sample_knowledge_path() -> Path:
     return Path(__file__).parent / "sample_knowledge.yaml"
+
+
+_ALLOWED_SUFFIXES = {".yaml", ".yml"}
+
+
+def _resolve_yaml_path(path: str | Path) -> Path:
+    """Validate a caller-supplied knowledge path before touching the filesystem.
+
+    `seed_knowledge.py` takes this straight from argv and everything it reads is
+    POSTed into the Knowledge Hub, where it becomes queryable. An unvalidated
+    path therefore turns "seed the knowledge base" into "copy any file this
+    process can read into a searchable store" — so constrain it to an existing
+    regular YAML file.
+
+    `resolve()` runs first on purpose: it collapses `..` and follows symlinks, so
+    a `policy.yaml` symlinked at `/etc/shadow` is checked by its real name and
+    fails the suffix test rather than sailing through it.
+    """
+    resolved = Path(path).expanduser().resolve()
+    if resolved.suffix.lower() not in _ALLOWED_SUFFIXES:
+        raise ValueError(
+            f"knowledge file must be .yaml or .yml, got {resolved.suffix or '(no suffix)'}: {resolved}"
+        )
+    if not resolved.is_file():
+        raise FileNotFoundError(f"knowledge file not found: {resolved}")
+    return resolved
 
 
 def knowledge_entries_for_seeding(path: str | Path | None = None) -> list[dict[str, Any]]:
@@ -130,7 +156,7 @@ def knowledge_entries_for_seeding(path: str | Path | None = None) -> list[dict[s
     """
     import yaml
 
-    src = Path(path) if path else sample_knowledge_path()
+    src = _resolve_yaml_path(path) if path else sample_knowledge_path()
     data = yaml.safe_load(src.read_text(encoding="utf-8")) or {}
 
     payloads = []

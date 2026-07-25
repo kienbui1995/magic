@@ -24,7 +24,12 @@ def main() -> None:
     api_key = os.getenv("MAGIC_API_KEY", "")
     path = sys.argv[1] if len(sys.argv) > 1 else sample_knowledge_path()
 
-    entries = knowledge_entries_for_seeding(path)
+    try:
+        entries = knowledge_entries_for_seeding(path)
+    except (ValueError, FileNotFoundError) as e:
+        logger.error("%s", e)
+        sys.exit(2)
+
     if path == sample_knowledge_path():
         logger.warning(
             "Đang nạp DỮ LIỆU MẪU từ %s — thay bằng chính sách thật của shop trước khi dùng cho khách.",
