@@ -25,7 +25,6 @@ import time
 from typing import Any, Callable, Mapping
 
 import httpx
-
 from magic_ai_sdk.connectors.base import BaseConnector
 from magic_ai_sdk.connectors.errors import AuthError, PermanentError, RateLimitError, TransientError, with_retry
 

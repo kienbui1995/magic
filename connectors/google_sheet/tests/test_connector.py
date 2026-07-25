@@ -6,9 +6,9 @@ import httpx
 import pytest
 import respx
 from google.auth.exceptions import RefreshError
+from magic_ai_sdk.connectors.errors import AuthError, PermanentError, RateLimitError, TransientError
 
 from google_sheet.connector import API_BASE, GoogleSheetConnector
-from magic_ai_sdk.connectors.errors import AuthError, PermanentError, RateLimitError, TransientError
 
 CONFIG = {"spreadsheet_id": "sheet-123", "service_account_info": {"type": "service_account"}}
 

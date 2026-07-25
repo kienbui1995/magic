@@ -1,0 +1,9 @@
+# Lint settings for the Python code outside sdk/python (connectors/, packs/).
+# sdk/python keeps its own [tool.ruff] in pyproject.toml — that config is closer
+# to those files, so it wins there. Kept in sync with it so every Python file in
+# the repo is held to the same rules.
+target-version = "py311"
+line-length = 135
+
+[lint]
+select = ["E", "F", "I"]

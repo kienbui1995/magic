@@ -23,7 +23,6 @@ from google.auth.exceptions import GoogleAuthError
 from google.auth.transport import Request as GoogleAuthRequestBase
 from google.auth.transport import Response as GoogleAuthResponseBase
 from google.oauth2 import service_account
-
 from magic_ai_sdk.connectors.base import BaseConnector
 from magic_ai_sdk.connectors.errors import AuthError, PermanentError, RateLimitError, TransientError, with_retry
 
