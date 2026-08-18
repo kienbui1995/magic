@@ -72,6 +72,8 @@ curl -X POST http://localhost:8080/api/v1/tasks \
 
 **Prerequisites:** Go 1.25+, Python 3.11+
 
+Default port is `8080` (`MAGIC_PORT`). If that port is taken, stop the other process or set `MAGIC_PORT`.
+
 ```bash
 # 1. Clone and build
 git clone https://github.com/kienbui1995/magic.git
@@ -81,8 +83,11 @@ cd core && go build -o ../bin/magic ./cmd/magic && cd ..
 # 2. Start the server
 ./bin/magic serve
 
-# 3. Install Python SDK
-cd sdk/python && pip install -e . && cd ../..
+# 3. Install Python SDK (venv — PEP 668 / Debian Python)
+cd sdk/python && python3 -m venv .venv && .venv/bin/pip install -e . && cd ../..
+
+# 4. Register the hello worker
+sdk/python/.venv/bin/python examples/hello-worker/main.py
 ```
 
 ### Option C: Docker
@@ -200,9 +205,9 @@ python examples/multi-worker/main.py
 ## Architecture
 
 ```
-                ┌──────────────────────────────────────────────┐
+                ┌────────────────────────────────────────────────────┐
                 │              MagiC Core (Go)                 │
-                ├──────────────────────────────────────────────┤
+                ├────────────────────────────────────────────────────┤
   HTTP Request ─>  Gateway (auth, body limit, request ID)      │
                 │    │                                         │
                 │    v                                         │
@@ -219,7 +224,7 @@ python examples/multi-worker/main.py
                 │  Org Manager (teams, policies)               │
                 │  Knowledge Hub (shared context)              │
                 │  Monitor (events, metrics, logging)          │
-                └──────────────────────────────────────────────┘
+                └────────────────────────────────────────────────────┘
 ```
 
 ### How it works
