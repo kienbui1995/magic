@@ -205,9 +205,9 @@ python examples/multi-worker/main.py
 ## Architecture
 
 ```
-                ┌────────────────────────────────────────────────────┐
+                ┌──────────────────────────────────────────────┐
                 │              MagiC Core (Go)                 │
-                ├────────────────────────────────────────────────────┤
+                ├──────────────────────────────────────────────┤
   HTTP Request ─>  Gateway (auth, body limit, request ID)      │
                 │    │                                         │
                 │    v                                         │
@@ -224,7 +224,7 @@ python examples/multi-worker/main.py
                 │  Org Manager (teams, policies)               │
                 │  Knowledge Hub (shared context)              │
                 │  Monitor (events, metrics, logging)          │
-                └────────────────────────────────────────────────────┘
+                └──────────────────────────────────────────────┘
 ```
 
 ### How it works
